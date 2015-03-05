@@ -1,0 +1,50 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.bbn.poi.visio</groupId>
+  <artifactId>poi-visio-graph</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>poi-visio-graph</name>
+  <description>Parse visio documents to get useful information out of them</description>
+  
+  <build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<source>1.7</source>
+					<target>1.7</target>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+	<dependencies>
+	
+		<dependency>
+            <groupId>com.bbn.poi.visio</groupId>
+            <artifactId>ooxml-visio-schemas</artifactId>
+            <version>2011.1</version>
+        </dependency>
+		
+		<dependency>
+			<groupId>com.bbn.poi.visio</groupId>
+			<artifactId>poi-visio</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
+        
+        <dependency>
+		    <groupId>com.tinkerpop.blueprints</groupId>
+		    <artifactId>blueprints-core</artifactId>
+		    <version>2.6.0</version>
+		</dependency>
+		
+		<dependency>
+		  <groupId>com.github.davidmoten</groupId>
+		  <artifactId>rtree</artifactId>
+		  <version>0.5.4</version>
+		</dependency>
+
+	</dependencies>
+    
+</project>
