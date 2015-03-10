@@ -6,6 +6,7 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
 import java.awt.geom.PathIterator;
 import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.util.Comparator;
 
 import org.apache.poi.POIXMLException;
@@ -57,6 +58,7 @@ public class ShapeData {
 		
 		// calculate bounding boxes + other geometry information we'll need later
 		Path2D.Double shapeBounds = shape.getBoundsAsPath();
+		
 		shapeBounds.transform(globalTransform);
 		
 		if (shape.isShape1D()) {
@@ -65,6 +67,18 @@ public class ShapeData {
 			
 			calculate1dEndpoints();
 		} else {
+			
+			// grow the shape boundary slightly to account for rounding errors
+			Rectangle2D tmp = shapeBounds.getBounds2D();
+			AffineTransform at = new AffineTransform();
+			
+			double w = tmp.getWidth();
+			double h = tmp.getHeight();
+			
+			at.scale((w+0.0002)/w, (h+0.0002)/h);
+			at.translate(-0.0001, -0.0001);
+			
+			shapeBounds.transform(at);
 			path2D = shapeBounds;
 		}
 		
