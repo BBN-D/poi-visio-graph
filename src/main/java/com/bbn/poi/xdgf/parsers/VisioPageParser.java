@@ -812,6 +812,7 @@ public class VisioPageParser {
 		
 		vertex.setProperty("label", "");
 		vertex.setProperty("shapeId", shapeId);
+		vertex.setProperty("shapeRef", oldShape.shapeId);
 		
 		ShapeData newShape = new ShapeData(shapeId, vertex, oldShape, newPath);
 		rtree = rtree.add(newShape, newShape.bounds);
