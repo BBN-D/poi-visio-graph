@@ -149,6 +149,7 @@ public class VisioPageParser {
 				vertex.setProperty("shapeId", shape.getID());
 				
 				vertex.setProperty("group", "");
+				vertex.setProperty("groupId", "");
 				vertex.setProperty("is1d", shape.isShape1D());
 				vertex.setProperty("name", shape.getName());
 				vertex.setProperty("pageName", pageName);
@@ -172,6 +173,9 @@ public class VisioPageParser {
 				
 				ShapeData shapeData = new ShapeData(vertex, shape, globalTransform);
 				rtree = rtree.add(shapeData, shapeData.bounds);
+				
+				vertex.setProperty("x", shapeData.bounds.x1());
+				vertex.setProperty("y", shapeData.bounds.y1());
 
 				shapesMap.put(shape.getID(), shapeData);
 				shapes.add(shapeData);
@@ -285,9 +289,11 @@ public class VisioPageParser {
 			
 			if (!containedShapes.isEmpty()) {
 				String groupName = shapeData.vertex.getProperty("label");
+				Object groupId = shapeData.vertex.getId();
 				
 				for (ShapeData other: containedShapes) {
 					other.vertex.setProperty("group", groupName);
+					other.vertex.setProperty("groupId", groupId);
 				}
 				
 				removeShape(shapeData);
@@ -816,6 +822,9 @@ public class VisioPageParser {
 		
 		ShapeData newShape = new ShapeData(shapeId, vertex, oldShape, newPath);
 		rtree = rtree.add(newShape, newShape.bounds);
+		
+		vertex.setProperty("x", newShape.bounds.x1());
+		vertex.setProperty("y", newShape.bounds.y1());
 		
 		return newShape;
 	}
