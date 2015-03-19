@@ -4,102 +4,12 @@ import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.PathIterator;
 import java.awt.geom.Point2D;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 public class GeomUtils {
 
-	
-	public static interface IntersectionVisitor {
-		
-		public void moveto(double x, double y);
-		
-		// points are intersection points with this line
-		public void lineto(double x, double y, List<Point2D> points);
-	}
-	
-	// splits a path into multiple paths based on intersections
-	public static class IntersectionSplitter implements IntersectionVisitor {
-		
-		List<Path2D.Double> newPaths = new ArrayList<Path2D.Double>();
-		Path2D.Double path = new Path2D.Double();
-		
-		public List<Path2D.Double> getPaths() {
-			if (path != null) {
-				newPaths.add(path);
-				path = null;
-			}
-			
-			return newPaths;
-		}
-		
-		@Override
-		public void moveto(double x, double y) {
-			path.moveTo(x, y);
-		}
-
-		@Override
-		public void lineto(double x, double y, List<Point2D> points) {
-			if (!points.isEmpty()) {
-				// need to sort the points relative to each other
-				// FUU. Collections.sort(points);
-				for (Point2D pt: points) {
-					path.lineTo(pt.getX(), pt.getY());
-					newPaths.add(path);
-					
-					path = new Path2D.Double();
-					path.moveTo(pt.getX(), pt.getY());
-				}
-			}
-			
-			path.lineTo(x, y);
-		}
-	}
-	
-	
-	
-	// determine if two paths intersect each other, and return the
-	// points where they intersect
-	public static boolean findIntersections(Path2D path1, Path2D path2, IntersectionVisitor visitor) {
-		return findIntersections(path1, path2, visitor, 0.01);
-	}
-	
-	// determine if two paths intersect each other, and return the
-	// points where they intersect
-	// -> Modified from code at https://community.oracle.com/thread/1263985
-	public static boolean findIntersections(Path2D path1, Path2D path2, IntersectionVisitor visitor, double flatness) {
-		
-        PathIterator pit = path1.getPathIterator(null, flatness);
-        double[] coords = new double[6];
-        double lastX = 0, lastY = 0;
-        boolean retval = false;
-        List<Point2D> points = new ArrayList<Point2D>();
-        
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    visitor.moveto(lastX, lastY);
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double line = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    
-                    findIntersections(path2, line, points, flatness);
-                    visitor.lineto(lastX, lastY, points);
-                    retval = retval || !points.isEmpty();
-                    points.clear();
-            }
-            pit.next();
-        }
-        
-        return retval;
-    }
-	
 	// determine if a line intersects a path, and return the points where
 	// they intersect
 	// -> Modified from code at https://community.oracle.com/thread/1263985
