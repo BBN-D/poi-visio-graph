@@ -67,11 +67,19 @@ public class VisioPageParser {
 		}
 	}
 	
+	protected class GroupData {
+		public ShapeData group;
+		public ArrayList<ShapeData> children;
+	}
+	
 	// indices
 	protected RTree<ShapeData, Rectangle> rtree = RTree.create();
 	protected final Map<Long, ShapeData> shapesMap = new HashMap<>();
 	protected final List<ShapeData> shapes = new ArrayList<>();
 	protected final Map<String, Edge> edges = new HashMap<>();
+	
+	// shapes removed from the graph
+	protected final List<GroupData> groupShapes = new ArrayList<>();
 	
 	// convenience
 	protected final long pageId;
@@ -109,6 +117,8 @@ public class VisioPageParser {
 		addGroupLabels();
 		inferConnections();
 		associateText();
+		
+		inferGroupConnections();
 	}
 	
 	// create vertices from interesting shapes
@@ -261,7 +271,7 @@ public class VisioPageParser {
 			
 			final long shapeTopLevelId = findTopmostParent(shapeData).shapeId;
 			
-			final List<ShapeData> containedShapes = new LinkedList<>();
+			final ArrayList<ShapeData> containedShapes = new ArrayList<>();
 			
 			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.bounds);
 			
@@ -295,6 +305,12 @@ public class VisioPageParser {
 					other.vertex.setProperty("group", groupName);
 					other.vertex.setProperty("groupId", groupId);
 				}
+				
+				// store group information for later usage
+				GroupData group = new GroupData();
+				group.children = containedShapes;
+				group.group = shapeData;
+				groupShapes.add(group);
 				
 				removeShape(shapeData);
 			}
@@ -699,6 +715,104 @@ public class VisioPageParser {
 				unsubscribe();
 			}
 		});
+	}
+	
+	protected void inferGroupConnections() {
+
+		//
+		// if a group consists entirely (mostly?) of disconnected shapes, then
+		// we should see if there are connections to the group. If there is,
+		// then we should connect all of the internal shapes to the connections
+		//
+		
+		// for each group
+		for (final GroupData groupData: groupShapes) {
+			
+			int disconnectedShapes = 0;
+			
+			// calculate the number of disconnected shapes
+			for (ShapeData child: groupData.children) {
+				
+				if (child.removed)
+					continue;
+				
+				if (!child.vertex.getEdges(Direction.BOTH).iterator().hasNext())
+					disconnectedShapes += 1;
+				
+				if (disconnectedShapes >= 2)
+					break;
+			}
+		
+			// if there are more than two disconnected 2d shapes, search for a
+			// connection to the group itself
+			if (disconnectedShapes >= 2 || disconnectedShapes == groupData.children.size()) {
+				
+				// identify any shapes that it overlaps with
+				// add that shape to the list of connections
+				Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.bounds);
+				
+				final List<ShapeData> connections = new ArrayList<>();
+				final Path2D groupPath = groupData.group.getPath();
+				
+				if (groupData.group.shapeId == 469) {
+					System.out.println("HI");
+				}
+				
+				entries.subscribe(new Rx.RTreeSubscriber() {
+
+					@Override
+					public void onNext(Entry<ShapeData, Rectangle> e) {
+						
+						ShapeData other = e.value();
+						
+						if (!other.is1d())
+							return;
+						
+						if (other.shapeId == 501) {
+							System.out.println("HI");
+						}
+						
+						// Don't check for path intersection!
+						//if (!GeomUtils.pathIntersects(groupData.group.path2D, other.path1D))
+						//	return;
+						
+						// check to see if one of the endpoints of the 1d shape intersects
+						// with the group
+						
+						
+						if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
+						    !GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
+							return;
+						}
+						
+						// TODO: what we probably want is a function that checks all segments of the path 
+						//       -- but only matches on the end segments matching
+						
+						connections.add(other);
+					}
+				});
+				
+				// if there's a connection, then connect that connection to all of the children
+				if (!connections.isEmpty()) {
+					for (ShapeData child: groupData.children) {
+						if (child.removed)
+							continue;
+						
+						// create connection
+						for (ShapeData connection: connections) {
+							createEdge(child, connection, "inferred-disconnected-group");
+						}
+					}
+				}
+				
+			}
+			
+			// if there isn't a connection to the group itself, then see if there
+			// is a connection to one of the interior 2d shapes
+		
+				// if there is, extend the connection
+		}
+		
 	}
 	
 	
