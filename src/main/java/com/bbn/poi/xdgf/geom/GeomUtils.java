@@ -152,6 +152,41 @@ public class GeomUtils {
         return false;
     }
 	
+	public static boolean pathIntersects(Path2D path, Point2D pt) {
+		return pathIntersects(path, pt, 0.01);
+	}
+	
+	// determine if a point lies along a path
+	public static boolean pathIntersects(Path2D path, Point2D pt, double flatness) {
+		
+        PathIterator pit = path.getPathIterator(null, flatness);
+        double[] coords = new double[6];
+        double ptX = pt.getX(), ptY = pt.getY();
+        double lastX = 0, lastY = 0;
+        while(!pit.isDone()) {
+            int type = pit.currentSegment(coords);
+            switch(type) {
+                case PathIterator.SEG_MOVETO:
+                    lastX = coords[0];
+                    lastY = coords[1];
+                    break;
+                case PathIterator.SEG_LINETO:
+                    Line2D.Double next = new Line2D.Double(lastX, lastY,
+                                                           coords[0], coords[1]);
+                    
+                    if (next.intersects(ptX, ptY, ptX, ptY)) {
+                    	return true;
+                    }
+                    
+                    lastX = coords[0];
+                    lastY = coords[1];
+            }
+            pit.next();
+        }
+        
+        return false;
+    }
+	
 	// this is terrible
 	public static double pathDistance(Path2D path, Point2D pt) {
 		
@@ -180,5 +215,59 @@ public class GeomUtils {
         
         return distance;
 	}
+	
+	// rounds path to 4 significant places
+	public static Path2D.Double roundPath(Path2D inPath) {
+		
+		Path2D.Double newPath = new Path2D.Double(inPath.getWindingRule());
+		
+		PathIterator pit = inPath.getPathIterator(null);
+		double[] coords = new double[6];
+		
+		while (!pit.isDone()) {
+			int type = pit.currentSegment(coords);
+			switch (type) {
+				case PathIterator.SEG_CLOSE:
+					newPath.closePath();
+					break;
+				case PathIterator.SEG_CUBICTO:
+					newPath.curveTo(trunc4(coords[0]),
+						   	   	    trunc4(coords[1]),
+						   	   	    trunc4(coords[2]),
+						   	   	    trunc4(coords[3]),
+						   	   	    trunc4(coords[4]),
+						   	   	    trunc4(coords[5]));
+					break;
+				case PathIterator.SEG_LINETO:
+					newPath.lineTo(trunc4(coords[0]),
+								   trunc4(coords[1]));
+					break;
+				case PathIterator.SEG_MOVETO:
+					newPath.moveTo(trunc4(coords[0]),
+							   	   trunc4(coords[1]));
+					break;
+				case PathIterator.SEG_QUADTO:
+					newPath.quadTo(trunc4(coords[0]),
+						   	   	   trunc4(coords[1]),
+						   	   	   trunc4(coords[2]),
+						   	   	   trunc4(coords[3]));
+					break;
+				default:
+					throw new RuntimeException();
+			}
+			pit.next();
+		}
+		
+		return newPath;
+	}
+	
+	// copied from groovy-core; Apache 2.0 license
+	public static double trunc(Double number, int precision) {
+        return Math.floor(number *Math.pow(10,precision))/Math.pow(10,precision);
+    }
+	
+	public static double trunc4(Double number) {
+        return Math.floor(number *Math.pow(10,4))/Math.pow(10,4);
+    }
 	
 }
