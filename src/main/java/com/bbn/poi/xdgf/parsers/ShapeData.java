@@ -12,6 +12,7 @@ import java.util.Comparator;
 import org.apache.poi.POIXMLException;
 import org.apache.poi.xdgf.usermodel.XDGFShape;
 
+import com.bbn.poi.xdgf.geom.GeomUtils;
 import com.bbn.poi.xdgf.parsers.rx.SpatialTools;
 import com.github.davidmoten.rtree.geometry.Rectangle;
 import com.tinkerpop.blueprints.Vertex;
@@ -60,25 +61,15 @@ public class ShapeData {
 		Path2D.Double shapeBounds = shape.getBoundsAsPath();
 		
 		shapeBounds.transform(globalTransform);
+		shapeBounds = GeomUtils.roundPath(shapeBounds);
 		
 		if (shape.isShape1D()) {
 			path1D = shape.getPath();
 			path1D.transform(globalTransform);
+			path1D = GeomUtils.roundPath(path1D);
 			
 			calculate1dEndpoints();
 		} else {
-			
-			// grow the shape boundary slightly to account for rounding errors
-			Rectangle2D tmp = shapeBounds.getBounds2D();
-			AffineTransform at = new AffineTransform();
-			
-			double w = tmp.getWidth();
-			double h = tmp.getHeight();
-			
-			at.scale((w+0.0002)/w, (h+0.0002)/h);
-			at.translate(-0.0001, -0.0001);
-			
-			shapeBounds.transform(at);
 			path2D = shapeBounds;
 		}
 		
@@ -138,5 +129,17 @@ public class ShapeData {
 		
 		path1Dstart = new Point2D.Double(coords[0], coords[1]);
 		path1Dend = path1D.getCurrentPoint();
+	}
+	
+	public float getCenterX() {
+		return bounds.x1() + (bounds.x2() - bounds.x1())/2.0F; 
+	}
+	
+	public float getCenterY() {
+		return bounds.y1() + (bounds.y2() - bounds.y1())/2.0F; 
+	}
+	
+	public String toString() {
+		return "[ShapeData " + shapeId + "]";
 	}
 }
