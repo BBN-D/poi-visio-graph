@@ -242,12 +242,12 @@ public class VisioPageParser {
 		if (parentMatch != null) {
 			XDGFText text = shape.getText();
 			
-			parentMatch.vertex.setProperty("label", text.getTextContent());
+			parentMatch.vertex.setProperty("label", shapeData.vertex.getProperty("label"));
 			parentMatch.vertex.setProperty("textRef", shape.getID());
 			parentMatch.hasText = true;
 			parentMatch.textCenter = text.getTextCenter();
 			
-			helper.onAssignText(parentMatch);
+			helper.onReassignToParent(parentMatch, shape);
 			
 			for (ShapeData dup: duplicates) {
 				removeShape(dup);
@@ -711,7 +711,7 @@ public class VisioPageParser {
 			textShape.vertex.setProperty("label", shapeData.vertex.getProperty("label"));
 			textShape.vertex.setProperty("textRef", shapeData.shapeId);
 			
-			helper.onAssignText(textShape);
+			helper.onAssignText(shapeData, textShape);
 		}
 		
 		createEdge(lastShape, thisShape, "inferred2d-split-next-end", currentX, currentY);
@@ -808,8 +808,6 @@ public class VisioPageParser {
 				other.hasText = true;
 				other.textCenter = textBox.textCenter;
 				
-				helper.onAssignText(other);
-				
 				// move any edges from the textbox to us
 				for (Edge edge: textBox.vertex.getEdges(Direction.BOTH)) {
 					
@@ -831,6 +829,8 @@ public class VisioPageParser {
 					
 					graph.removeEdge(edge);
 				}
+				
+				helper.onAssignText(textBox, other);
 				
 				// remove the textbox from the tree so others can't use it
 				removeShape(textBox);
