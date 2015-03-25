@@ -55,7 +55,7 @@ public class ShapeData {
 	public boolean removed = false;
 	
 	
-	public ShapeData(Vertex vertex, XDGFShape shape, AffineTransform globalTransform) {
+	public ShapeData(XDGFShape shape, AffineTransform globalTransform) {
 		
 		// calculate bounding boxes + other geometry information we'll need later
 		Path2D.Double shapeBounds = shape.getBoundsAsPath();
@@ -73,7 +73,6 @@ public class ShapeData {
 			path2D = shapeBounds;
 		}
 		
-		this.vertex = vertex;
 		this.shapeId = shape.getID();
 		this.bounds = SpatialTools.getShapeBounds(shapeBounds);
 		this.area = this.bounds.area();

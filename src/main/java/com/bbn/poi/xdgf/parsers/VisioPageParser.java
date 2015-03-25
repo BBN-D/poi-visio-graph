@@ -46,6 +46,7 @@ import com.tinkerpop.blueprints.impls.tg.TinkerGraph;
 public class VisioPageParser {
 
 	protected Graph graph;
+	protected SemanticHelper helper;
 	
 	protected class SplitData {
 		public ShapeData s1;
@@ -81,6 +82,9 @@ public class VisioPageParser {
 	// shapes removed from the graph
 	protected final List<GroupData> groupShapes = new ArrayList<>();
 	
+	// secondary sets of groups
+	protected final List<GroupData> secondaryGroupShapes = new ArrayList<>();
+	
 	// convenience
 	protected final long pageId;
 	protected final String pageName;
@@ -90,11 +94,16 @@ public class VisioPageParser {
 	protected long shapeIdAllocator = -42;
 
 	public VisioPageParser(XDGFPage page) {
-		this(page, new TinkerGraph());
+		this(page, new SemanticHelper(), new TinkerGraph());
 	}
 	
-	public VisioPageParser(XDGFPage page, Graph graph) {
+	public VisioPageParser(XDGFPage page, SemanticHelper helper) {
+		this(page, helper, new TinkerGraph());
+	}
+	
+	public VisioPageParser(XDGFPage page, SemanticHelper helper, Graph graph) {
 		this.graph = graph;
+		this.helper = helper;
 		
 		pageId = page.getID();
 		pageName = page.getName();
@@ -119,6 +128,8 @@ public class VisioPageParser {
 		associateText();
 		
 		inferGroupConnections();
+		
+		removeConnectionsAt2Dobjects();
 	}
 	
 	// create vertices from interesting shapes
@@ -134,25 +145,16 @@ public class VisioPageParser {
 			@Override
 			public void visit(XDGFShape shape, AffineTransform globalTransform, int level) {
 				
-				// apply labels to parents
-				if (shape.hasText() && shape.hasParent()) {
-					
-					XDGFShape parent = shape.getParentShape();
-					ShapeData parentData = shapesMap.get(parent.getID());
-					if (parentData != null && !parentData.hasText && Math.abs(shape.getWidth() - parent.getWidth()) < 0.001)
-					{
-						XDGFText text = shape.getText();
-						
-						parentData.vertex.setProperty("label", text.getTextContent());
-						parentData.vertex.setProperty("textRef", shape.getID());
-						parentData.hasText = true;
-						parentData.textCenter = text.getTextCenter();
-						return;
-					}
+				ShapeData shapeData = new ShapeData(shape, globalTransform);
+				
+				if (shape.hasText() && reassignTextNodeToParent(shape, shapeData)) {
+					return;
 				}
 				
 				String id = pageId + ": " + shape.getID();
 				Vertex vertex = graph.addVertex(id);
+				
+				shapeData.vertex = vertex;
 				
 				// useful properties for later... 
 				vertex.setProperty("label", shape.getTextAsString());
@@ -180,25 +182,111 @@ public class VisioPageParser {
 				//    distance between objects would be annoying
 				
 				// local coordinates
-				
-				ShapeData shapeData = new ShapeData(vertex, shape, globalTransform);
 				rtree = rtree.add(shapeData, shapeData.bounds);
 				
-				vertex.setProperty("x", shapeData.bounds.x1());
-				vertex.setProperty("y", shapeData.bounds.y1());
+				vertex.setProperty("x", shapeData.getCenterX());
+				vertex.setProperty("y", shapeData.getCenterY());
+				
+				helper.onCreate(shapeData, shape);
 
 				shapesMap.put(shape.getID(), shapeData);
 				shapes.add(shapeData);
 			}
 		});
 		
+		cleanShapes();
+		
 		Collections.sort(shapes, new ShapeData.OrderByLargestAreaFirst());
+	}
+	
+	protected boolean reassignTextNodeToParent(XDGFShape shape, ShapeData shapeData) {
+	
+		// keep looking at parents to see if they're a good match
+		ShapeData parentMatch = null;
+		XDGFShape current = shape;
+		ArrayList<ShapeData> duplicates = new ArrayList<>();
+		
+		double x = shapeData.bounds.x1();
+		
+		double width = shapeData.bounds.x2() - shapeData.bounds.x1();
+		
+		while (current.hasParent()) {
+			
+			XDGFShape parent = current.getParentShape();
+			ShapeData parentData = shapesMap.get(parent.getID());
+			
+			if (parentData != null) {
+			
+				double parentWidth = parentData.bounds.x2() - parentData.bounds.x1();
+				double px = parentData.bounds.x1();
+				
+				if (Math.abs(width - parentWidth) > 0.0001 || Math.abs(px - x) > 0.0001)
+					break;
+				
+				// found a potential match
+				if (!parentData.hasText) {
+					
+					// discard duplicate useless shapes
+					if (parentMatch != null)
+						duplicates.add(parentMatch);
+					
+					parentMatch = parentData;
+				}
+			}
+			
+			current = parent;
+		}
+		
+		// if there's a parent match, reassign the text
+		if (parentMatch != null) {
+			XDGFText text = shape.getText();
+			
+			parentMatch.vertex.setProperty("label", text.getTextContent());
+			parentMatch.vertex.setProperty("textRef", shape.getID());
+			parentMatch.hasText = true;
+			parentMatch.textCenter = text.getTextCenter();
+			
+			helper.onAssignText(parentMatch);
+			
+			for (ShapeData dup: duplicates) {
+				removeShape(dup);
+			}
+			
+			return true;
+		}
+		
+		return false;
 	}
 	
 	// create a list of the existing ('real', not inferred) connections
 	protected void collectConnections() {
+		
+		if (!helper.useRealConnections())
+			return;
+		
 		for (XDGFConnection conn: pageContents.getConnections()) {
-			createEdge(conn.getFromShape(), conn.getToShape(), "real");
+			// if we get the connection point, then it has to be in real coordinates
+			
+			Double x = null, y = null;
+			XDGFShape from = conn.getFromShape();
+			XDGFShape to = conn.getToShape();
+			
+			ShapeData fromShapeData = findShape(from.getID());
+			
+			switch (conn.getFromPart()) {
+				case XDGFConnection.visBegin:
+					x = fromShapeData.path1Dstart.getX();
+					y = fromShapeData.path1Dstart.getY();
+					break;
+				case XDGFConnection.visEnd:
+					x = fromShapeData.path1Dend.getX();
+					y = fromShapeData.path1Dend.getY();
+					break;
+				default:
+					break;
+			}
+			
+			createEdge(from, to, "real", x, y);
 		}
 	}
 	
@@ -247,7 +335,7 @@ public class VisioPageParser {
 					}
 					
 					// but if it doesn't contain, then link them together
-					createEdge(shapeData, other, "linked");
+					createEdge(shapeData, other, "linked", null, null);
 				}
 			});
 		}
@@ -269,9 +357,14 @@ public class VisioPageParser {
 			if (shapeData.is1d() || !shapeData.hasText)
 				continue;
 			
-			final long shapeTopLevelId = findTopmostParent(shapeData).shapeId;
+			Long shapeTopLevelId_ = findTopmostParent(shapeData).shapeId;
+			if (shapeTopLevelId_ == shapeData.shapeId)
+				shapeTopLevelId_ = null;
+			
+			final Long shapeTopLevelId = shapeTopLevelId_;
 			
 			final ArrayList<ShapeData> containedShapes = new ArrayList<>();
+			final ArrayList<ShapeData> secondaryShapes = new ArrayList<>();
 			
 			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.bounds);
 			
@@ -282,22 +375,27 @@ public class VisioPageParser {
 					ShapeData other = e.value();
 					
 					// include 1d shapes? no
-					if (other.is1d())
+					if (other == shapeData || other.is1d())
 						return;
 					
 					// if it visually contains it
 					if (shapeData.bounds.intersectionArea(other.bounds) >= other.area) {
 						
-						// AND if they're not in the same hierarchy
-						if (shapeTopLevelId != findTopmostParent(other).shapeId) { 
+						// ok, what to do here.
+						// -- problem: two hierarchies present here
+						
+						// AND if they're not in the same hierarchy.. unless one is the topmost parent
+						if (shapeTopLevelId == null || shapeTopLevelId != findTopmostParent(other).shapeId) { 
 							containedShapes.add(other);
+						} else {
+							secondaryShapes.add(other);
 						}
 					}
-					
 				}
 			});
 			
 			if (!containedShapes.isEmpty()) {
+				
 				String groupName = shapeData.vertex.getProperty("label");
 				Object groupId = shapeData.vertex.getId();
 				
@@ -313,6 +411,14 @@ public class VisioPageParser {
 				groupShapes.add(group);
 				
 				removeShape(shapeData);
+				
+			} else if (!secondaryShapes.isEmpty()) {
+				
+				// this is a secondary group, it doesn't get removed from the graph yet
+				GroupData group = new GroupData();
+				group.children = secondaryShapes;
+				group.group = shapeData;
+				secondaryGroupShapes.add(group);
 			}
 		}
 		
@@ -391,11 +497,12 @@ public class VisioPageParser {
 				
 				ShapeData other = e.value();
 				
-				// discard 1d shapes, shapes that are already attached, or shapes
+				// discard 1d shapes, textboxes, shapes that are already attached, or shapes
 				// that don't intersect
-				if (other.is1d())
+				if (other.is1d() || other.isTextbox)
 					return;
 				
+				// Don't create new connections to things it's already attached to
 				if (attached.contains(other.vertex))
 					return;
 				
@@ -406,8 +513,12 @@ public class VisioPageParser {
 				
 				// if either of this line's endpoints are inside the 2d shape,
 				// then just create a connection and be done with it
-				if (other.path2D.contains(shapeData.path1Dstart) || other.path2D.contains(shapeData.path1Dend)) {
-					createEdge(shapeData, other, "inferred-2d");
+				if (GeomUtils.isInsideOrOnBoundary(other.path2D, shapeData.path1Dstart)) {
+					Point2D p = shapeData.path1Dstart;
+					createEdge(shapeData, other, "inferred-2d", p.getX(), p.getY());
+				} else if (GeomUtils.isInsideOrOnBoundary(other.path2D, shapeData.path1Dend)) {
+					Point2D p = shapeData.path1Dend;
+					createEdge(shapeData, other, "inferred-2d", p.getX(), p.getY());
 				} else {
 					connections.add(other);
 				}
@@ -426,6 +537,7 @@ public class VisioPageParser {
 		List<ShapeData> connectedToStart = new LinkedList<>();
 		List<ShapeData> connectedToEnd = new LinkedList<>();
 		
+		
 		for (Edge edge: shapeData.vertex.getEdges(Direction.BOTH)) {
 			ShapeData in = getShapeFromEdge(edge, Direction.IN);
 			ShapeData out = getShapeFromEdge(edge, Direction.OUT);
@@ -442,9 +554,9 @@ public class VisioPageParser {
 			
 			otherPath = other.getPath();
 			
-			if (otherPath.contains(shapeData.path1Dstart))
+			if (GeomUtils.isInsideOrOnBoundary(otherPath, shapeData.path1Dstart))
 				connectedToStart.add(other);
-			else if (otherPath.contains(shapeData.path1Dend))
+			else if (GeomUtils.isInsideOrOnBoundary(otherPath, shapeData.path1Dend))
 				connectedToEnd.add(other);
 			else
 				connections.add(in);
@@ -468,12 +580,23 @@ public class VisioPageParser {
 		double[] coords = new double[6];
         double lastX = 0, lastY = 0;
         final Point2D firstPt = shapeData.path1Dstart;
+        
+        // coordinate of the last connection point
+        Double currentX = null;
+        Double currentY = null;
+        
+        
 		
 		while (!pit.isDone()) {
 			
 			int type = pit.currentSegment(coords);
             switch(type) {
             	case PathIterator.SEG_MOVETO:
+            		if (currentX == null) {
+            			currentX = coords[0];
+            			currentY = coords[1];
+            		}
+            		
             		currentPath.moveTo(coords[0], coords[1]);
             		break;
             	case PathIterator.SEG_LINETO:
@@ -520,7 +643,10 @@ public class VisioPageParser {
             					continue;
             				
             				// ok. create a path and stuff.
-            				currentPath.lineTo(intersection.point.getX(), intersection.point.getY());
+            				double iX = intersection.point.getX();
+            				double iY = intersection.point.getY();
+            				
+            				currentPath.lineTo(iX, iY);
 	            			
 	            			// create a new shapeData
 	            			ShapeData thisShape = clone1dShape(currentPath, shapeData);
@@ -536,18 +662,21 @@ public class VisioPageParser {
 	            			// create edges joining them
 	            			if (lastShape == null) {
 	            				for (ShapeData shape: connectedToStart)
-	            					createEdge(thisShape, shape, "inferred2d-split-start");
+	            					createEdge(thisShape, shape, "inferred2d-split-start", currentX, currentY);
 	            				
 	            			} else {
-	            				createEdge(lastShape, thisShape, "inferred2d-split-middle");
+	            				createEdge(lastShape, thisShape, "inferred2d-split-middle", currentX, currentY);
 	            			}
 	            			
-	            			createEdge(thisShape, intersection.other, "inferred2d-split-middle");
+	            			createEdge(thisShape, intersection.other, "inferred2d-split-middle", currentX, currentY);
 	            			
 	            			lastShape = intersection.other;
             			
 	            			currentPath = new Path2D.Double();
-	            			currentPath.moveTo(intersection.point.getX(), intersection.point.getY());
+	            			currentPath.moveTo(iX, iY);
+	            			
+	            			currentX = iX;
+	            			currentY = iY;
             			}
             			
             			currentPath.lineTo(coords[0], coords[1]);
@@ -580,20 +709,22 @@ public class VisioPageParser {
 			textShape.textCenter = shapeData.textCenter;
 			textShape.vertex.setProperty("label", shapeData.vertex.getProperty("label"));
 			textShape.vertex.setProperty("textRef", shapeData.shapeId);
+			
+			helper.onAssignText(textShape);
 		}
 		
-		createEdge(lastShape, thisShape, "inferred2d-split-next-end");
+		createEdge(lastShape, thisShape, "inferred2d-split-next-end", currentX, currentY);
 		
 		for (ShapeData shape: connectedToEnd)
-			createEdge(thisShape, shape, "inferred2d-split-end");
+			createEdge(thisShape, shape, "inferred2d-split-end", lastX, lastY);
 		
 		removeShape(shapeData);
 	}
 	
 	protected void infer1dConnections(final ShapeData shapeData) {
 		
-		// create a list of real things that I'm attached to
-		final Set<Vertex> attached = Sets.newHashSet(shapeData.vertex.getVertices(Direction.BOTH, "real"));
+		// create a list of things that I'm attached to
+		final Set<Vertex> attached = Sets.newHashSet(shapeData.vertex.getVertices(Direction.BOTH));
 		
 		// identify any shapes that it overlaps with
 		// add that shape to the list of connections
@@ -606,7 +737,7 @@ public class VisioPageParser {
 				
 				ShapeData other = e.value();
 				
-				if (other == shapeData || other.removed || !other.is1d())
+				if (other == shapeData || other.removed || !other.is1d() || attached.contains(other.vertex))
 					return;
 				
 				// don't infer connections between lines of different colors
@@ -616,7 +747,9 @@ public class VisioPageParser {
 				}
 				
 				// compute if they intersect
-				if (!GeomUtils.pathIntersects(shapeData.path1D, other.path1D)) {
+				List<Point2D> intersections = new ArrayList<>();
+				
+				if (!GeomUtils.findIntersections(shapeData.path1D, other.path1D, intersections, 0.01)) {
 					return;
 				}
 				
@@ -627,18 +760,10 @@ public class VisioPageParser {
 				// 'arcto' point. if so, discard, as that's a 'clear' visual indicator
 				// that it should not be connected
 				
-				// do not create edges between 1d objects IF they both have
-				// connections to the same 2d object
-				// .. and their intersection is at that object?
-				
-				for (Vertex v: other.vertex.getVertices(Direction.BOTH)) {
-					if (attached.contains(v) && (boolean)v.getProperty("is1d") == false) {
-						return;
-					}
-				}
-				
 				// ok, we've gotten here, create a connection between the two lines
-				createEdge(shapeData, other, "inferred-1d");
+				// -> connection point is first point.. not sure what to do with other points
+				Point2D intersection = intersections.get(0);
+				createEdge(shapeData, other, "inferred-1d", intersection.getX(), intersection.getY());
 			}
 		});
 	}
@@ -648,10 +773,10 @@ public class VisioPageParser {
 		// ordered by largest first
 		for (ShapeData shapeData: shapes) {
 			
-			if (shapeData.hasText || shapeData.removed)
+			if (!shapeData.isTextbox || shapeData.removed)
 				continue;
 			
-			associateTextWithShape(shapeData);
+			associateTextboxWithShape(shapeData);
 		}
 		
 		cleanShapes();
@@ -659,15 +784,13 @@ public class VisioPageParser {
 	
 	
 	/**
-	 * this takes a shape that doesn't have text associated with it
+	 * this takes a shape that is a 'textbox'
 	 */
-	protected void associateTextWithShape(final ShapeData shapeData) {
-		
-		final Vertex vertex = shapeData.vertex; 
+	protected void associateTextboxWithShape(final ShapeData textBox) {
 		
 		// limit the search to some reasonable number/distance (TODO: what is reasonable)
 		
-		Observable<Entry<ShapeData, Rectangle>> entries = rtree.nearest(shapeData.bounds, .6, rtree.size());
+		Observable<Entry<ShapeData, Rectangle>> entries = rtree.nearest(textBox.bounds, helper.textInferenceDistance(textBox), rtree.size());
 		
 		entries.subscribe(new Rx.RTreeSubscriber() {
 			
@@ -676,27 +799,31 @@ public class VisioPageParser {
 				
 				ShapeData other = e.value();
 				
-				// find the nearest textbox, and steal its text
-				
-				if (!other.isTextbox || other.removed)
+				if (other.hasText || other.removed || !helper.onTextInference(textBox, other))
 					return;
 				
-				vertex.setProperty("label", other.vertex.getProperty("label"));
-				vertex.setProperty("textRef", other.shapeId);
-				shapeData.hasText = true;
-				shapeData.textCenter = other.textCenter;
+				other.vertex.setProperty("label", textBox.vertex.getProperty("label"));
+				other.vertex.setProperty("textRef", textBox.shapeId);
+				other.hasText = true;
+				other.textCenter = textBox.textCenter;
 				
-				// move any edges from other to us
-				for (Edge edge: other.vertex.getEdges(Direction.BOTH)) {
+				helper.onAssignText(other);
+				
+				// move any edges from the textbox to us
+				for (Edge edge: textBox.vertex.getEdges(Direction.BOTH)) {
 					
 					ShapeData in = getShapeFromEdge(edge, Direction.IN);
 					ShapeData out = getShapeFromEdge(edge, Direction.OUT);
 					
-					if (in != shapeData && out != shapeData) {
-						if (in == other)
-							createEdge(out, shapeData, "reparent");
-						else if (out == other)
-							createEdge(in, shapeData, "reparent");
+					if (in != other && out != other) {
+						
+						Double x = edge.getProperty("x");
+						Double y = edge.getProperty("y");
+						
+						if (in == textBox)
+							createEdge(out, other, "reparent", x, y);
+						else if (out == textBox)
+							createEdge(in, other, "reparent", x, y);
 						else
 							throw new POIXMLException("Internal error");
 					}
@@ -705,11 +832,11 @@ public class VisioPageParser {
 				}
 				
 				// remove the textbox from the tree so others can't use it
-				removeShape(other);
+				removeShape(textBox);
 				
 				// TODO: probably want to be more intelligent, and assign the text to
 				//       things that are nearer in a particular direction, taking 
-				//       advantage to how a human might naturally align the text..
+				//       advantage of how a human might naturally align the text..
 				
 				// done with this
 				unsubscribe();
@@ -725,98 +852,204 @@ public class VisioPageParser {
 		// then we should connect all of the internal shapes to the connections
 		//
 		
+		//
+		// Process formal groups first
+		//
+		
 		// for each group
 		for (final GroupData groupData: groupShapes) {
 			
-			int disconnectedShapes = 0;
+			if (!groupIsMostlyDisconnected(groupData))
+				continue;
+				
+			// identify any shapes that it overlaps with
+			// add that shape to the list of connections
+			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.bounds);
 			
-			// calculate the number of disconnected shapes
-			for (ShapeData child: groupData.children) {
-				
-				if (child.removed)
-					continue;
-				
-				if (!child.vertex.getEdges(Direction.BOTH).iterator().hasNext())
-					disconnectedShapes += 1;
-				
-				if (disconnectedShapes >= 2)
-					break;
-			}
-		
-			// if there are more than two disconnected 2d shapes, search for a
-			// connection to the group itself
-			if (disconnectedShapes >= 2 || disconnectedShapes == groupData.children.size()) {
-				
-				// identify any shapes that it overlaps with
-				// add that shape to the list of connections
-				Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.bounds);
-				
-				final List<ShapeData> connections = new ArrayList<>();
-				final Path2D groupPath = groupData.group.getPath();
-				
-				if (groupData.group.shapeId == 469) {
-					System.out.println("HI");
-				}
-				
-				entries.subscribe(new Rx.RTreeSubscriber() {
+			final List<ShapeData> connections = new ArrayList<>();
+			final Path2D groupPath = groupData.group.getPath();
+			
+			entries.subscribe(new Rx.RTreeSubscriber() {
 
-					@Override
-					public void onNext(Entry<ShapeData, Rectangle> e) {
-						
-						ShapeData other = e.value();
-						
-						if (!other.is1d())
-							return;
-						
-						if (other.shapeId == 501) {
-							System.out.println("HI");
-						}
-						
-						// Don't check for path intersection!
-						//if (!GeomUtils.pathIntersects(groupData.group.path2D, other.path1D))
-						//	return;
-						
-						// check to see if one of the endpoints of the 1d shape intersects
-						// with the group
-						
-						
-						if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
-						    !GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
-							return;
-						}
-						
-						// TODO: what we probably want is a function that checks all segments of the path 
-						//       -- but only matches on the end segments matching
-						
-						connections.add(other);
+				@Override
+				public void onNext(Entry<ShapeData, Rectangle> e) {
+					
+					ShapeData other = e.value();
+					
+					if (!other.is1d())
+						return;
+					
+					// Don't check for path intersection!
+					//if (!GeomUtils.pathIntersects(groupData.group.path2D, other.path1D))
+					//	return;
+					
+					// check to see if one of the endpoints of the 1d shape intersects
+					// with the group
+					
+					
+					if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
+					    !GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
+						return;
 					}
-				});
-				
-				// if there's a connection, then connect that connection to all of the children
-				if (!connections.isEmpty()) {
-					for (ShapeData child: groupData.children) {
-						if (child.removed)
-							continue;
-						
-						// create connection
-						for (ShapeData connection: connections) {
-							createEdge(child, connection, "inferred-disconnected-group");
-						}
-					}
+					
+					// TODO: what we probably want is a function that checks all segments of the path 
+					//       -- but only matches on the end segments matching
+					
+					connections.add(other);
 				}
-				
-			}
+			});
 			
-			// if there isn't a connection to the group itself, then see if there
+			connectDisconnectedGroup(groupData, connections);
+			
+			// TODO: if there isn't a connection to the group itself, then see if there
 			// is a connection to one of the interior 2d shapes
 		
 				// if there is, extend the connection
 		}
 		
+		// 
+		// Process things that look like possible groups
+		//
+		
+		for (GroupData groupData: secondaryGroupShapes) {
+			
+			if (!groupIsMostlyDisconnected(groupData))
+				continue;
+			
+			final List<ShapeData> connections = new ArrayList<>();
+			final Path2D groupPath = groupData.group.getPath();
+			
+			// secondary groups are still in the graph, so they probably have vertices
+			// associated with them
+			for (Vertex v: groupData.group.vertex.getVertices(Direction.BOTH)) {
+				
+				ShapeData other = shapesMap.get(v.getProperty("shapeId"));
+				
+				if (!other.is1d())
+					continue;
+				
+				if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
+					!GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
+					continue;
+				}
+				
+				connections.add(other);
+			}
+			
+			connectDisconnectedGroup(groupData, connections);
+		}
+		
+		cleanShapes();
+	}
+	
+	protected boolean groupIsMostlyDisconnected(GroupData groupData) {
+		
+		int disconnectedShapes = 0;
+		int totalShapes = 0;
+		
+		// calculate the number of disconnected shapes that have text
+		for (ShapeData child: groupData.children) {
+			
+			if (child.removed || !child.hasText)
+				continue;
+			
+			if (!child.vertex.getEdges(Direction.BOTH).iterator().hasNext())
+				disconnectedShapes += 1;
+			
+			totalShapes += 1;
+		}
+	
+		// if there are more than two disconnected 2d shapes, search for a
+		// connection to the group itself
+		return disconnectedShapes >= totalShapes/2 || disconnectedShapes == totalShapes;
+	}
+	
+	protected void connectDisconnectedGroup(GroupData groupData, List<ShapeData> connections) {
+		
+		if (connections.isEmpty())
+			return;
+		
+		if (!groupData.group.removed) {
+			removeShape(groupData.group);
+		}
+		
+		// if there's a connection, then connect that connection to all of the children
+		for (ShapeData child: groupData.children) {
+			if (child.removed || !child.hasText)
+				continue;
+			
+			// create connection
+			for (ShapeData connection: connections) {
+				createEdge(child, connection, "inferred-disconnected-group", null, null);
+			}
+		}
+	}
+	
+	protected void removeConnectionsAt2Dobjects() {
+		
+		// this is a cleanup operation -- if there are connection points
+		// for 1d objects that exist at a 2d shape that they are connected
+		// to, then remove the connection
+		
+		for (ShapeData shape: shapes) {
+			
+			if (!shape.is1d())
+				continue;
+			
+			Set<Long> collected2dObjects = null;
+			
+			// get the connection point from the edge properties
+			for (Edge edge: shape.vertex.getEdges(Direction.BOTH)) {
+				Double x = edge.getProperty("x");
+				if (x == null)
+					continue;
+				
+				Double y = edge.getProperty("y");
+				
+				// ok, the other end must be a 1d object. Find the object.
+				// Find all 2d objects that I'm connected to, and see if the
+				// other object is connected to any of them.
+				
+				if (collected2dObjects == null)
+					collected2dObjects = collect2dObjects(shape.vertex);
+				
+				// if both connected to the same object, see if the x/y overlaps
+				Vertex other = edge.getVertex(Direction.IN);
+				if (other == shape.vertex)
+					other = edge.getVertex(Direction.OUT);
+				
+				Set<Long> other2dObjects = collect2dObjects(other);
+				
+				for (Long o: other2dObjects) {
+					if (collected2dObjects.contains(o)) {
+						ShapeData sd = shapesMap.get(o);
+						if (sd.bounds.contains(x, y)) {
+							// remove edge if it overlaps
+							edge.remove();
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	Set<Long> collect2dObjects(Vertex v) {
+		
+		Set<Long> collected = new HashSet<>();
+		
+		for (Vertex other: v.getVertices(Direction.BOTH)) {
+			if (other.getProperty("is1d"))
+				continue;
+			
+			collected.add((Long)other.getProperty("shapeId"));
+		}
+		
+		return collected;
 	}
 	
 	
-	protected void createEdge(XDGFShape shape1, XDGFShape shape2, String edgeType) {
+	protected void createEdge(XDGFShape shape1, XDGFShape shape2, String edgeType, Double x, Double y) {
 		
 		ShapeData sd1 = findShape(shape1.getID());
 		ShapeData sd2 = findShape(shape2.getID());
@@ -829,12 +1062,13 @@ public class VisioPageParser {
 		
 		// TODO: how to deal with from/to being null? Might happen.
 		
-		createEdge(sd1, sd2, edgeType);
+		createEdge(sd1, sd2, edgeType, x, y);
 	}
 	
 	
 	// edgeType is a string describing where the edge came from
-	protected void createEdge(ShapeData sd1, ShapeData sd2, String edgeType) {
+	// x/y is the coordinate where the connection occurs
+	protected void createEdge(ShapeData sd1, ShapeData sd2, String edgeType, Double x, Double y) {
 	
 		// note: visio doesn't always support direction, and neither do we. So, to
 		//       save time, and make sure we don't accidentally create duplicate 
@@ -853,6 +1087,11 @@ public class VisioPageParser {
 		Edge edge = graph.getEdge(eId);
 		if (edge == null) {
 			edge = graph.addEdge(eId, from.vertex, to.vertex, edgeType);
+			
+			if (x != null && y != null) {
+				edge.setProperty("x", x);
+				edge.setProperty("y", y);
+			}
 		}
 	}
 	
@@ -937,8 +1176,10 @@ public class VisioPageParser {
 		ShapeData newShape = new ShapeData(shapeId, vertex, oldShape, newPath);
 		rtree = rtree.add(newShape, newShape.bounds);
 		
-		vertex.setProperty("x", newShape.bounds.x1());
-		vertex.setProperty("y", newShape.bounds.y1());
+		vertex.setProperty("x", newShape.getCenterX());
+		vertex.setProperty("y", newShape.getCenterY());
+		
+		helper.onClone1d(oldShape, newShape);
 		
 		return newShape;
 	}

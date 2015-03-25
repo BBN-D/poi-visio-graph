@@ -10,6 +10,39 @@ import java.util.List;
 
 public class GeomUtils {
 
+	public static boolean isInsideOrOnBoundary(Path2D path, Point2D pt) {
+		return path.contains(pt) || pathIntersects(path, pt);
+	}
+	
+	
+	// determine if a path intersects a path, and return the points where
+	// they intersect
+	// -> Modified from code at https://community.oracle.com/thread/1263985
+	public static boolean findIntersections(Path2D path1, Path2D path2, List<Point2D> points, double flatness) {
+		
+        PathIterator pit = path1.getPathIterator(null, flatness);
+        double[] coords = new double[6];
+        double lastX = 0, lastY = 0;
+        while(!pit.isDone()) {
+            int type = pit.currentSegment(coords);
+            switch(type) {
+                case PathIterator.SEG_MOVETO:
+                    lastX = coords[0];
+                    lastY = coords[1];
+                    break;
+                case PathIterator.SEG_LINETO:
+                    Line2D.Double line = new Line2D.Double(lastX, lastY,
+                                                           coords[0], coords[1]);
+                    findIntersections(path2, line, points, flatness);
+                    lastX = coords[0];
+                    lastY = coords[1];
+            }
+            pit.next();
+        }
+        
+        return !points.isEmpty();
+    }
+	
 	// determine if a line intersects a path, and return the points where
 	// they intersect
 	// -> Modified from code at https://community.oracle.com/thread/1263985
