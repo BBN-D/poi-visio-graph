@@ -30,6 +30,7 @@ import rx.Observable;
 
 import com.bbn.poi.xdgf.geom.GeomUtils;
 import com.bbn.poi.xdgf.parsers.rx.Rx;
+import com.bbn.poi.xdgf.parsers.rx.SpatialTools;
 import com.github.davidmoten.rtree.Entry;
 import com.github.davidmoten.rtree.RTree;
 import com.github.davidmoten.rtree.geometry.Rectangle;
@@ -790,7 +791,7 @@ public class VisioPageParser {
 		
 		// limit the search to some reasonable number/distance (TODO: what is reasonable)
 		
-		Observable<Entry<ShapeData, Rectangle>> entries = rtree.nearest(textBox.bounds, helper.textInferenceDistance(textBox), rtree.size());
+		Observable<Entry<ShapeData, Rectangle>> entries = SpatialTools.nearest(rtree, textBox.bounds, helper.textInferenceDistance(textBox), rtree.size());
 		
 		entries.subscribe(new Rx.RTreeSubscriber() {
 			
