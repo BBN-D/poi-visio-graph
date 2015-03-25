@@ -242,7 +242,7 @@ public class VisioPageParser {
 		if (parentMatch != null) {
 			XDGFText text = shape.getText();
 			
-			parentMatch.vertex.setProperty("label", shapeData.vertex.getProperty("label"));
+			parentMatch.vertex.setProperty("label", shape.getTextAsString());
 			parentMatch.vertex.setProperty("textRef", shape.getID());
 			parentMatch.hasText = true;
 			parentMatch.textCenter = text.getTextCenter();
