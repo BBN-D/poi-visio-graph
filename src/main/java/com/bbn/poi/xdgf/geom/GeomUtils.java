@@ -14,13 +14,19 @@ public class GeomUtils {
 		return path.contains(pt) || pathIntersects(path, pt);
 	}
 	
+	public static PathIterator getPathIterator(Path2D path, Double flatness) {
+		if (flatness != null)
+			return path.getPathIterator(null, flatness);
+		else
+			return path.getPathIterator(null);
+	}
 	
 	// determine if a path intersects a path, and return the points where
 	// they intersect
 	// -> Modified from code at https://community.oracle.com/thread/1263985
-	public static boolean findIntersections(Path2D path1, Path2D path2, List<Point2D> points, double flatness) {
+	public static boolean findIntersections(Path2D path1, Path2D path2, List<Point2D> points, Double flatness) {
 		
-        PathIterator pit = path1.getPathIterator(null, flatness);
+		PathIterator pit = getPathIterator(path1, flatness);
         double[] coords = new double[6];
         double lastX = 0, lastY = 0;
         while(!pit.isDone()) {
@@ -36,6 +42,15 @@ public class GeomUtils {
                     findIntersections(path2, line, points, flatness);
                     lastX = coords[0];
                     lastY = coords[1];
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                	lastX = coords[2];
+                    lastY = coords[3];
+                	break;
+                case PathIterator.SEG_QUADTO:
+                	lastX = coords[4];
+                    lastY = coords[5];
+                	break;
             }
             pit.next();
         }
@@ -46,9 +61,9 @@ public class GeomUtils {
 	// determine if a line intersects a path, and return the points where
 	// they intersect
 	// -> Modified from code at https://community.oracle.com/thread/1263985
-	public static boolean findIntersections(Path2D path, Line2D line, List<Point2D> points, double flatness) {
+	public static boolean findIntersections(Path2D path, Line2D line, List<Point2D> points, Double flatness) {
 		
-        PathIterator pit = path.getPathIterator(null, flatness);
+		PathIterator pit = getPathIterator(path, flatness);
         double[] coords = new double[6];
         double lastX = 0, lastY = 0;
         while(!pit.isDone()) {
@@ -69,6 +84,15 @@ public class GeomUtils {
                     
                     lastX = coords[0];
                     lastY = coords[1];
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                	lastX = coords[2];
+                    lastY = coords[3];
+                	break;
+                case PathIterator.SEG_QUADTO:
+                	lastX = coords[4];
+                    lastY = coords[5];
+                	break;
             }
             pit.next();
         }
@@ -128,9 +152,9 @@ public class GeomUtils {
 	
 	// determine if two paths intersect each other
 	// -> Modified from code at https://community.oracle.com/thread/1263985
-	public static boolean pathIntersects(Path2D path1, Path2D path2, double flatness) {
+	public static boolean pathIntersects(Path2D path1, Path2D path2, Double flatness) {
 		
-        PathIterator pit = path1.getPathIterator(null, flatness);
+		PathIterator pit = getPathIterator(path1, flatness);
         double[] coords = new double[6];
         double lastX = 0, lastY = 0;
         while(!pit.isDone()) {
@@ -148,6 +172,15 @@ public class GeomUtils {
                     }
                     lastX = coords[0];
                     lastY = coords[1];
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                	lastX = coords[2];
+                    lastY = coords[3];
+                	break;
+                case PathIterator.SEG_QUADTO:
+                	lastX = coords[4];
+                    lastY = coords[5];
+                	break;
             }
             pit.next();
         }
@@ -157,9 +190,9 @@ public class GeomUtils {
 	
 	// determine if a line intersects a path
 	// -> Modified from code at https://community.oracle.com/thread/1263985
-	public static boolean pathIntersects(Path2D path, Line2D line, double flatness) {
+	public static boolean pathIntersects(Path2D path, Line2D line, Double flatness) {
 		
-        PathIterator pit = path.getPathIterator(null, flatness);
+		PathIterator pit = getPathIterator(path, flatness);
         double[] coords = new double[6];
         double lastX = 0, lastY = 0;
         while(!pit.isDone()) {
@@ -178,6 +211,15 @@ public class GeomUtils {
                     
                     lastX = coords[0];
                     lastY = coords[1];
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                	lastX = coords[2];
+                    lastY = coords[3];
+                	break;
+                case PathIterator.SEG_QUADTO:
+                	lastX = coords[4];
+                    lastY = coords[5];
+                	break;
             }
             pit.next();
         }
@@ -190,9 +232,9 @@ public class GeomUtils {
 	}
 	
 	// determine if a point lies along a path
-	public static boolean pathIntersects(Path2D path, Point2D pt, double flatness) {
+	public static boolean pathIntersects(Path2D path, Point2D pt, Double flatness) {
 		
-        PathIterator pit = path.getPathIterator(null, flatness);
+		PathIterator pit = getPathIterator(path, flatness);
         double[] coords = new double[6];
         double ptX = pt.getX(), ptY = pt.getY();
         double lastX = 0, lastY = 0;
@@ -213,6 +255,15 @@ public class GeomUtils {
                     
                     lastX = coords[0];
                     lastY = coords[1];
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                	lastX = coords[2];
+                    lastY = coords[3];
+                	break;
+                case PathIterator.SEG_QUADTO:
+                	lastX = coords[4];
+                    lastY = coords[5];
+                	break;
             }
             pit.next();
         }

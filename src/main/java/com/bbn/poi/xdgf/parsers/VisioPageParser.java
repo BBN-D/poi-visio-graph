@@ -750,7 +750,7 @@ public class VisioPageParser {
 				// compute if they intersect
 				List<Point2D> intersections = new ArrayList<>();
 				
-				if (!GeomUtils.findIntersections(shapeData.path1D, other.path1D, intersections, 0.01)) {
+				if (!GeomUtils.findIntersections(shapeData.path1D, other.path1D, intersections, null)) {
 					return;
 				}
 				
