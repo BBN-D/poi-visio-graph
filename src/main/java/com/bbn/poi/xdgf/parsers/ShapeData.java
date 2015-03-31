@@ -40,6 +40,7 @@ public class ShapeData {
 	public Point2D path1Dend = null;
 	
 	public Path2D path2D = null;
+	public boolean hasGeometry;
 	
 	public Point2D textCenter = null;
 	
@@ -67,10 +68,12 @@ public class ShapeData {
 			path1D = shape.getPath();
 			path1D.transform(globalTransform);
 			path1D = GeomUtils.roundPath(path1D);
+			hasGeometry = true;
 			
 			calculate1dEndpoints();
 		} else {
 			path2D = shapeBounds;
+			hasGeometry = (shape.getPath() != null);
 		}
 		
 		this.shapeId = shape.getID();
@@ -79,10 +82,6 @@ public class ShapeData {
 		
 		this.lineColor = shape.getLineColor();
 		this.linePattern = shape.getLinePattern();
-		
-		XDGFShape parentShape = shape.getParentShape();
-		if (parentShape != null)
-			parentId = parentShape.getID(); 
 		
 		hasText = shape.hasText();
 		isTextbox = hasText && !shape.hasMaster() && !shape.hasMasterShape();

@@ -34,6 +34,7 @@ import com.bbn.poi.xdgf.parsers.rx.SpatialTools;
 import com.github.davidmoten.rtree.Entry;
 import com.github.davidmoten.rtree.RTree;
 import com.github.davidmoten.rtree.geometry.Rectangle;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Sets;
 import com.tinkerpop.blueprints.Direction;
 import com.tinkerpop.blueprints.Edge;
@@ -72,6 +73,11 @@ public class VisioPageParser {
 	protected class GroupData {
 		public ShapeData group;
 		public ArrayList<ShapeData> children;
+		
+		@Override
+		public String toString() {
+			return "[GroupData " + group + "]";
+		}
 	}
 	
 	// indices
@@ -152,6 +158,11 @@ public class VisioPageParser {
 					return;
 				}
 				
+				if (!isInteresting(shape) && !areSiblingsInteresting(shape) && !moreInterestingThanParents(shape))
+					return;
+				
+				setParentId(shapeData, shape);
+				
 				String id = pageId + ": " + shape.getID();
 				Vertex vertex = graph.addVertex(id);
 				
@@ -163,6 +174,7 @@ public class VisioPageParser {
 				
 				vertex.setProperty("group", "");
 				vertex.setProperty("groupId", "");
+				vertex.setProperty("inSecondaryGroup", false);
 				vertex.setProperty("is1d", shape.isShape1D());
 				vertex.setProperty("name", shape.getName());
 				vertex.setProperty("pageName", pageName);
@@ -198,6 +210,22 @@ public class VisioPageParser {
 		cleanShapes();
 		
 		Collections.sort(shapes, new ShapeData.OrderByLargestAreaFirst());
+	}
+	
+	protected void setParentId(ShapeData shapeData, XDGFShape shape) {
+		
+		while (true) {
+			
+			shape = shape.getParentShape();
+			if (shape == null)
+				return;
+			
+			if (shapesMap.get(shape.getID()) != null) {
+				shapeData.parentId = shape.getID();
+				break;
+			}
+		}
+		
 	}
 	
 	protected boolean reassignTextNodeToParent(XDGFShape shape, ShapeData shapeData) {
@@ -358,11 +386,9 @@ public class VisioPageParser {
 			if (shapeData.is1d() || !shapeData.hasText)
 				continue;
 			
-			Long shapeTopLevelId_ = findTopmostParent(shapeData).shapeId;
-			if (shapeTopLevelId_ == shapeData.shapeId)
-				shapeTopLevelId_ = null;
+			final boolean inGroup = !shapeData.vertex.getProperty("groupId").equals("");
 			
-			final Long shapeTopLevelId = shapeTopLevelId_;
+			final ShapeData topmostParent = findTopmostParentWithGeom(shapeData);
 			
 			final ArrayList<ShapeData> containedShapes = new ArrayList<>();
 			final ArrayList<ShapeData> secondaryShapes = new ArrayList<>();
@@ -386,7 +412,7 @@ public class VisioPageParser {
 						// -- problem: two hierarchies present here
 						
 						// AND if they're not in the same hierarchy.. unless one is the topmost parent
-						if (shapeTopLevelId == null || shapeTopLevelId != findTopmostParent(other).shapeId) { 
+						if (!inGroup && (topmostParent == null || topmostParent != findTopmostParentWithGeom(other))) { 
 							containedShapes.add(other);
 						} else {
 							secondaryShapes.add(other);
@@ -414,6 +440,10 @@ public class VisioPageParser {
 				removeShape(shapeData);
 				
 			} else if (!secondaryShapes.isEmpty()) {
+				
+				for (ShapeData other: secondaryShapes) {
+					other.vertex.setProperty("inSecondaryGroup", true);
+				}
 				
 				// this is a secondary group, it doesn't get removed from the graph yet
 				GroupData group = new GroupData();
@@ -860,52 +890,13 @@ public class VisioPageParser {
 		// for each group
 		for (final GroupData groupData: groupShapes) {
 			
-			if (!groupIsMostlyDisconnected(groupData))
+			if (!groupIsMostlyDisconnected(groupData, true))
 				continue;
+			
+			List<ShapeData> connections = new ArrayList<>();
 				
-			// identify any shapes that it overlaps with
-			// add that shape to the list of connections
-			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.bounds);
-			
-			final List<ShapeData> connections = new ArrayList<>();
-			final Path2D groupPath = groupData.group.getPath();
-			
-			entries.subscribe(new Rx.RTreeSubscriber() {
-
-				@Override
-				public void onNext(Entry<ShapeData, Rectangle> e) {
-					
-					ShapeData other = e.value();
-					
-					if (!other.is1d())
-						return;
-					
-					// Don't check for path intersection!
-					//if (!GeomUtils.pathIntersects(groupData.group.path2D, other.path1D))
-					//	return;
-					
-					// check to see if one of the endpoints of the 1d shape intersects
-					// with the group
-					
-					
-					if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
-					    !GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
-						return;
-					}
-					
-					// TODO: what we probably want is a function that checks all segments of the path 
-					//       -- but only matches on the end segments matching
-					
-					connections.add(other);
-				}
-			});
-			
+			inferDisconnectedGroupConnections(groupData, connections, false);
 			connectDisconnectedGroup(groupData, connections);
-			
-			// TODO: if there isn't a connection to the group itself, then see if there
-			// is a connection to one of the interior 2d shapes
-		
-				// if there is, extend the connection
 		}
 		
 		// 
@@ -914,7 +905,7 @@ public class VisioPageParser {
 		
 		for (GroupData groupData: secondaryGroupShapes) {
 			
-			if (!groupIsMostlyDisconnected(groupData))
+			if (!groupIsMostlyDisconnected(groupData, false))
 				continue;
 			
 			final List<ShapeData> connections = new ArrayList<>();
@@ -922,20 +913,45 @@ public class VisioPageParser {
 			
 			// secondary groups are still in the graph, so they probably have vertices
 			// associated with them
-			for (Vertex v: groupData.group.vertex.getVertices(Direction.BOTH)) {
+			for (Edge e: groupData.group.vertex.getEdges(Direction.BOTH)) {
+				
+				Vertex v = e.getVertex(Direction.IN);
+				if (v == groupData.group.vertex)
+					v = e.getVertex(Direction.OUT);
 				
 				ShapeData other = shapesMap.get(v.getProperty("shapeId"));
 				
 				if (!other.is1d())
 					continue;
 				
-				if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
-					!GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
+				boolean has2dConnection = false;
+				
+				// check to see if it is connected to a 2d shape that overlaps this shape
+				for (Vertex vv: v.getVertices(Direction.BOTH)) {
+					if (vv == groupData.group.vertex)
+						continue;
+					
+					ShapeData oo = shapesMap.get(vv.getProperty("shapeId"));
+					if (oo.is1d())
+						continue;
+					
+					if (GeomUtils.pathIntersects(groupPath, oo.getPath()))
+						has2dConnection = true;
+				}
+				
+				if (!e.getLabel().equals("real") &&
+					!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
+					!GeomUtils.pathIntersects(groupPath, other.path1Dend) &&
+					!has2dConnection) {
 					continue;
 				}
 				
 				connections.add(other);
 			}
+			
+			// if nothing found, see if there are 2d shapes to connect to
+			if (connections.size() == 0)
+				inferDisconnectedGroupConnections(groupData, connections, true);
 			
 			connectDisconnectedGroup(groupData, connections);
 		}
@@ -943,7 +959,7 @@ public class VisioPageParser {
 		cleanShapes();
 	}
 	
-	protected boolean groupIsMostlyDisconnected(GroupData groupData) {
+	protected boolean groupIsMostlyDisconnected(GroupData groupData, boolean ignoreSecondary) {
 		
 		int disconnectedShapes = 0;
 		int totalShapes = 0;
@@ -951,7 +967,10 @@ public class VisioPageParser {
 		// calculate the number of disconnected shapes that have text
 		for (ShapeData child: groupData.children) {
 			
-			if (child.removed || !child.hasText)
+			if (child.removed || !child.hasText || child.is1d())
+				continue;
+			
+			if (ignoreSecondary && child.vertex.getProperty("inSecondaryGroup").equals(true))
 				continue;
 			
 			if (!child.vertex.getEdges(Direction.BOTH).iterator().hasNext())
@@ -962,7 +981,49 @@ public class VisioPageParser {
 	
 		// if there are more than two disconnected 2d shapes, search for a
 		// connection to the group itself
-		return disconnectedShapes >= totalShapes/2 || disconnectedShapes == totalShapes;
+		return disconnectedShapes != 0 && (disconnectedShapes >= totalShapes/2 || disconnectedShapes == totalShapes);
+	}
+	
+	protected void inferDisconnectedGroupConnections(GroupData groupData, final List<ShapeData> connections, final boolean ignore1d) {
+		// identify any shapes that it overlaps with
+		// add that shape to the list of connections
+		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.bounds);
+		
+		final Path2D groupPath = groupData.group.getPath();
+		
+		entries.subscribe(new Rx.RTreeSubscriber() {
+
+			@Override
+			public void onNext(Entry<ShapeData, Rectangle> e) {
+				
+				ShapeData other = e.value();
+				
+				if (other.is1d()) {
+					
+					// TODO: what we probably want is a function that checks all segments of the path 
+					//       -- but only matches on the end segments matching
+					
+					if (ignore1d)
+						return;
+					
+					// check to see if one of the endpoints of the 1d shape intersects
+					// with the group
+					if (!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
+					    !GeomUtils.pathIntersects(groupPath, other.path1Dend)) {
+						return;
+					}
+					
+				} else {
+					
+					if (!other.vertex.getVertices(Direction.BOTH).iterator().hasNext() ||  
+						!GeomUtils.pathIntersects(groupPath, other.path2D)) {
+						return;
+					}
+				}
+				
+				connections.add(other);
+			}
+		});
 	}
 	
 	protected void connectDisconnectedGroup(GroupData groupData, List<ShapeData> connections) {
@@ -1117,11 +1178,55 @@ public class VisioPageParser {
 		return sd;
 	}
 	
-	protected ShapeData findTopmostParent(ShapeData shapeData) {
-		while (shapeData.parentId != null)
-			shapeData = shapesMap.get(shapeData.parentId);
+	boolean isInteresting(XDGFShape shape) {
+		return shape.isShape1D() || shape.hasMaster() || shape.hasText();
+	}
+	
+	// this is way inefficient
+	protected boolean areSiblingsInteresting(XDGFShape shape) {
+		XDGFShape parent = shape.getParentShape();
+		if (parent == null)
+			return false;
 		
-		return shapeData;
+		for (XDGFShape sibling: parent.getShapes()) {
+			if (isInteresting(sibling))
+				return true;
+		}
+			
+		return false;
+	}
+	
+	protected boolean moreInterestingThanParents(XDGFShape shape) {
+		
+		// traverse up the tree until we find something
+		// with text, or a master associated with it
+		
+		while (true) {
+			shape = shape.getParentShape();
+			if (shape == null)
+				break;
+			
+			// if parent exists, it was deemed to be interesting, because we
+			// traverse down
+			if (shapesMap.get(shape.getID()) != null)
+				return false;
+		}
+		
+		return false;
+	}
+	
+	
+	protected ShapeData findTopmostParentWithGeom(ShapeData shapeData) {
+		
+		ShapeData shapeWithGeom = (shapeData.hasGeometry ? shapeData: null);
+		
+		while (shapeData.parentId != null) {
+			shapeData = shapesMap.get(shapeData.parentId);
+			if (shapeData.hasGeometry)
+				shapeWithGeom = shapeData;
+		}
+		
+		return shapeWithGeom;
 	}
 	
 	protected String getConnId(ShapeData from, ShapeData to) {
