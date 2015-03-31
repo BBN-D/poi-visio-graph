@@ -249,7 +249,7 @@ public class GeomUtils {
                     Line2D.Double next = new Line2D.Double(lastX, lastY,
                                                            coords[0], coords[1]);
                     
-                    if (next.intersects(ptX, ptY, ptX, ptY)) {
+                    if (next.intersects(ptX - 0.00001, ptY - 0.00001, 0.00002, 0.00002)) {
                     	return true;
                     }
                     
