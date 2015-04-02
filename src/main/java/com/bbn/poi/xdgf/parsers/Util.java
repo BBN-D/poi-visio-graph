@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2015 Raytheon BBN Technologies Corp. All rights reserved.
+ */
+
 package com.bbn.poi.xdgf.parsers;
 
 import java.io.IOException;
