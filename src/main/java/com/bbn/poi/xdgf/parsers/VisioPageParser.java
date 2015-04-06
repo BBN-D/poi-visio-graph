@@ -162,7 +162,13 @@ public class VisioPageParser {
 					return;
 				}
 				
-				if (!isInteresting(shape) && !areSiblingsInteresting(shape) && !moreInterestingThanParents(shape))
+				// if shape is not interesting and
+				// if siblings are not interesting (unless it has children) and
+				// if shape parents are interesting
+				
+				if (!isInteresting(shape) &&
+					!areSiblingsInteresting(shape) &&
+					!moreInterestingThanParents(shape))
 					return;
 				
 				setParentId(shapeData, shape);
@@ -1183,11 +1189,15 @@ public class VisioPageParser {
 	}
 	
 	boolean isInteresting(XDGFShape shape) {
-		return shape.isShape1D() || shape.hasMaster() || shape.hasText();
+		return !shape.getSymbolName().isEmpty() || shape.isShape1D() || shape.hasMaster() || shape.hasText();
 	}
 	
 	// this is way inefficient
 	protected boolean areSiblingsInteresting(XDGFShape shape) {
+		
+		if (!shape.hasShapes())
+			return false;
+		
 		XDGFShape parent = shape.getParentShape();
 		if (parent == null)
 			return false;
