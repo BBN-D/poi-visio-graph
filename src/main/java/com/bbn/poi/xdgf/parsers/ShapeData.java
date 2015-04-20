@@ -68,8 +68,12 @@ public class ShapeData {
 		shapeBounds.transform(globalTransform);
 		shapeBounds = GeomUtils.roundPath(shapeBounds);
 		
-		if (shape.isShape1D()) {
-			path1D = shape.getPath();
+		Path2D path = shape.getPath();
+		
+		// some 1d shapes don't have a path associated with them, 
+		// if they have subshapes... 
+		if (shape.isShape1D() && path != null) {
+			path1D = path;
 			path1D.transform(globalTransform);
 			path1D = GeomUtils.roundPath(path1D);
 			hasGeometry = true;
@@ -77,7 +81,7 @@ public class ShapeData {
 			calculate1dEndpoints();
 		} else {
 			path2D = shapeBounds;
-			hasGeometry = (shape.getPath() != null);
+			hasGeometry = (path != null);
 		}
 		
 		this.shapeId = shape.getID();
