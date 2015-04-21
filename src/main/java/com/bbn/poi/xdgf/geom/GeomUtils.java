@@ -1,115 +1,85 @@
 /*
  * Copyright (c) 2015 Raytheon BBN Technologies Corp. All rights reserved.
+ * 
+ * Modified from code at https://community.oracle.com/thread/1264395
+ * Modified from code at https://community.oracle.com/thread/1263985
  */
 
 package com.bbn.poi.xdgf.geom;
 
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.PathIterator;
 import java.awt.geom.Point2D;
-import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 
 public class GeomUtils {
 
+	public static boolean arePointsEqual(double x1, double y1, double x2, double y2) {
+		return Math.abs(x1 - x2) < 0.00001 && Math.abs(y1 - y2) < 0.00001;
+	}
+	
 	public static boolean isInsideOrOnBoundary(Path2D path, Point2D pt) {
 		return path.contains(pt) || pathIntersects(path, pt);
 	}
 	
-	public static PathIterator getPathIterator(Path2D path, Double flatness) {
-		if (flatness != null)
-			return path.getPathIterator(null, flatness);
-		else
-			return path.getPathIterator(null);
-	}
-	
 	// determine if a path intersects a path, and return the points where
 	// they intersect
-	// -> Modified from code at https://community.oracle.com/thread/1263985
 	public static boolean findIntersections(Path2D path1, Path2D path2, List<Point2D> points, Double flatness) {
 		
-		PathIterator pit = getPathIterator(path1, flatness);
-        double[] coords = new double[6];
-        double lastX = 0, lastY = 0;
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double line = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    findIntersections(path2, line, points, flatness);
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_CUBICTO:
-                	lastX = coords[2];
-                    lastY = coords[3];
-                	break;
-                case PathIterator.SEG_QUADTO:
-                	lastX = coords[4];
-                    lastY = coords[5];
-                	break;
-            }
-            pit.next();
-        }
-        
+		PathSegmentIterator psit = new PathSegmentIterator(path1, null, flatness); 
+		
+		while (psit.next()) {
+			if (psit.pt != null) {
+				findIntersections(path2, psit.pt, points, flatness);
+			} else {
+				findIntersections(path2, psit.line, points, flatness);
+			}
+		}
+		
         return !points.isEmpty();
     }
 	
 	// determine if a line intersects a path, and return the points where
 	// they intersect
-	// -> Modified from code at https://community.oracle.com/thread/1263985
 	public static boolean findIntersections(Path2D path, Line2D line, List<Point2D> points, Double flatness) {
 		
-		PathIterator pit = getPathIterator(path, flatness);
-        double[] coords = new double[6];
-        double lastX = 0, lastY = 0;
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double next = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    
-                    Point2D point = getLineIntersection(next, line);
-                    if(point != null) {
-                    	points.add(point);
-                    }
-                    
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_CUBICTO:
-                	lastX = coords[2];
-                    lastY = coords[3];
-                	break;
-                case PathIterator.SEG_QUADTO:
-                	lastX = coords[4];
-                    lastY = coords[5];
-                	break;
-            }
-            pit.next();
-        }
-        
+		PathSegmentIterator psit = new PathSegmentIterator(path, null, flatness); 
+		
+		while (psit.next()) {
+			
+			if (psit.intersects(line)) {
+				if (psit.pt != null)
+					points.add(psit.pt);
+				else
+					points.add(getLineIntersection(psit.line, line));
+			}
+		}
+		
         return !points.isEmpty();
     }
+	
+	// determine if a line intersects a path, and return the points where
+	// they intersect
+	public static boolean findIntersections(Path2D path, Point2D pt, List<Point2D> points, Double flatness) {
+		
+		PathSegmentIterator psit = new PathSegmentIterator(path, null, flatness); 
+		
+		while (psit.next()) {
+			if (psit.intersects(pt)) {
+				points.add(psit.pt);
+			}
+		}
+		
+        return !points.isEmpty();
+	}
 	
 	public static String getLineRepr(Line2D line) {
 		return "Line2D[x1=" + line.getX1() + ", y1=" + line.getY1() + ", x2=" + line.getX2() + ", y2=" + line.getY2() + "]";
 	}
 	
 	// find the point where two lines intersect
-	// -> Modified from code at https://community.oracle.com/thread/1264395
 	protected static Point2D getLineIntersection(Line2D line1, Line2D line2) {
         
 		// this code will be correct, use it as a check
@@ -155,78 +125,34 @@ public class GeomUtils {
 	}
 	
 	// determine if two paths intersect each other
-	// -> Modified from code at https://community.oracle.com/thread/1263985
 	public static boolean pathIntersects(Path2D path1, Path2D path2, Double flatness) {
 		
-		PathIterator pit = getPathIterator(path1, flatness);
-        double[] coords = new double[6];
-        double lastX = 0, lastY = 0;
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double line = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    if (pathIntersects(path2, line, flatness)) {
-                    	return true;
-                    }
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_CUBICTO:
-                	lastX = coords[2];
-                    lastY = coords[3];
-                	break;
-                case PathIterator.SEG_QUADTO:
-                	lastX = coords[4];
-                    lastY = coords[5];
-                	break;
-            }
-            pit.next();
-        }
-        
+		PathSegmentIterator psit = new PathSegmentIterator(path1, null, flatness); 
+		
+		while (psit.next()) {
+			if (psit.pt != null) {
+				if (pathIntersects(path2, psit.pt, flatness)) {
+                	return true;
+                }
+			} else {
+				if (pathIntersects(path2, psit.line, flatness))
+					return true;
+			}
+		}
+		    
         return false;
     }
 	
 	// determine if a line intersects a path
-	// -> Modified from code at https://community.oracle.com/thread/1263985
 	public static boolean pathIntersects(Path2D path, Line2D line, Double flatness) {
 		
-		PathIterator pit = getPathIterator(path, flatness);
-        double[] coords = new double[6];
-        double lastX = 0, lastY = 0;
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double next = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    if(next.intersectsLine(line)) {
-                        return true;
-                    }
-                    
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_CUBICTO:
-                	lastX = coords[2];
-                    lastY = coords[3];
-                	break;
-                case PathIterator.SEG_QUADTO:
-                	lastX = coords[4];
-                    lastY = coords[5];
-                	break;
-            }
-            pit.next();
-        }
+		PathSegmentIterator psit = new PathSegmentIterator(path, null, flatness); 
+		
+		while (psit.next()) {
+			if (psit.intersects(line)) {
+				return true;
+			}
+		}
         
         return false;
     }
@@ -238,68 +164,37 @@ public class GeomUtils {
 	// determine if a point lies along a path
 	public static boolean pathIntersects(Path2D path, Point2D pt, Double flatness) {
 		
-		PathIterator pit = getPathIterator(path, flatness);
-        double[] coords = new double[6];
-        double ptX = pt.getX(), ptY = pt.getY();
-        double lastX = 0, lastY = 0;
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double next = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    
-                    if (next.intersects(ptX - 0.00001, ptY - 0.00001, 0.00002, 0.00002)) {
-                    	return true;
-                    }
-                    
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_CUBICTO:
-                	lastX = coords[2];
-                    lastY = coords[3];
-                	break;
-                case PathIterator.SEG_QUADTO:
-                	lastX = coords[4];
-                    lastY = coords[5];
-                	break;
-            }
-            pit.next();
-        }
-        
+		PathSegmentIterator psit = new PathSegmentIterator(path, null, flatness); 
+		double ptX = pt.getX(), ptY = pt.getY();
+		
+		while (psit.next()) {
+			if (psit.pt != null) {
+				if (psit.pt.equals(pt)) {
+                	return true;
+                }
+			} else {
+				if (psit.line.intersects(ptX - 0.00001, ptY - 0.00001, 0.00002, 0.00002)) {
+                	return true;
+                }
+			}
+		}
+		    
         return false;
     }
 	
 	// this is terrible
 	public static double pathDistance(Path2D path, Point2D pt) {
 		
-		PathIterator pit = path.getPathIterator(null, 0.01);
+		PathSegmentIterator psit = new PathSegmentIterator(path, null, 0.01); 
 		double distance = Double.MAX_VALUE;
 		
-		double[] coords = new double[6];
-        double lastX = 0, lastY = 0;
-        while(!pit.isDone()) {
-            int type = pit.currentSegment(coords);
-            switch(type) {
-                case PathIterator.SEG_MOVETO:
-                    lastX = coords[0];
-                    lastY = coords[1];
-                    break;
-                case PathIterator.SEG_LINETO:
-                    Line2D.Double next = new Line2D.Double(lastX, lastY,
-                                                           coords[0], coords[1]);
-                    distance = Math.min(distance, next.ptSegDistSq(pt));
-                    
-                    lastX = coords[0];
-                    lastY = coords[1];
-            }
-            pit.next();
-        }
+		while (psit.next()) {
+			if (psit.pt != null) {
+				distance = Math.min(distance, psit.pt.distance(pt));
+			} else {
+				distance = Math.min(distance, psit.line.ptSegDist(pt));
+			}
+		}
         
         return distance;
 	}
@@ -358,4 +253,81 @@ public class GeomUtils {
         return Math.floor(number *Math.pow(10,4))/Math.pow(10,4);
     }
 	
+	
+	public static class PathSegmentIterator {
+		
+		public Point2D pt = null;
+		public Line2D line = null;
+		
+		final PathIterator pit;
+		
+		double[] coords = new double[6];
+		double lastX, lastY;
+		
+		
+		public PathSegmentIterator(Path2D path, AffineTransform at, Double flatness) {
+			if (flatness == null)
+				pit = path.getPathIterator(at);
+			else
+				pit = path.getPathIterator(at, flatness);
+		}
+		
+		// returns true if a point or line is available, false otherwise
+		public boolean next() {
+			
+			while(!pit.isDone()) {
+	            int type = pit.currentSegment(coords);
+	            switch(type) {
+	                case PathIterator.SEG_MOVETO:
+	                    lastX = coords[0];
+	                    lastY = coords[1];
+	                    break;
+	                case PathIterator.SEG_LINETO:
+	                	if (arePointsEqual(lastX, lastY, coords[0], coords[1])) {
+	                		line = null;
+	                		pt = new Point2D.Double(lastX, lastY);
+	                	} else {
+	                		pt = null;
+		                    line = new Line2D.Double(lastX, lastY,
+		                                             coords[0], coords[1]);
+	                	}
+	                	
+	                	lastX = coords[0];
+	                    lastY = coords[1];
+	                	pit.next();
+	                	return true;
+	                case PathIterator.SEG_QUADTO:
+	                	lastX = coords[4];
+	                    lastY = coords[5];
+	                	break;
+	                case PathIterator.SEG_CUBICTO:
+	                	lastX = coords[2];
+	                    lastY = coords[3];
+	                	break;
+	            }
+	            
+	            pit.next();
+			}
+			
+			return false;
+		}
+		
+		// only applies to current segment
+		boolean intersects(Line2D line) {
+			if (this.pt != null) {
+				return line.ptLineDist(pt) == 0.0;
+			} else {
+				return this.line.intersectsLine(line);
+			}
+		}
+		
+		// only applies to current segment
+		boolean intersects(Point2D pt) {
+			if (this.pt != null) {
+				return this.pt.equals(pt);
+			} else {
+				return line.ptLineDist(pt) == 0.0;
+			}
+		}
+	}
 }
