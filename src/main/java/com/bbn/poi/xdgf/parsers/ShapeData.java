@@ -58,6 +58,7 @@ public class ShapeData {
 	public Integer linePattern;
 	
 	public boolean removed = false;
+	public boolean isInteresting = false;
 	
 	
 	public ShapeData(XDGFShape shape, AffineTransform globalTransform) {
@@ -88,10 +89,12 @@ public class ShapeData {
 		this.bounds = SpatialTools.getShapeBounds(shapeBounds);
 		this.area = this.bounds.area();
 		
+		this.isInteresting = isInteresting(shape);
+		
 		this.lineColor = shape.getLineColor();
 		this.linePattern = shape.getLinePattern();
 		
-		hasText = shape.hasText();
+		hasText = shape.hasText() && !shape.getTextAsString().isEmpty();
 		isTextbox = hasText && !shape.hasMaster() && !shape.hasMasterShape();
 		
 		if (hasText)
@@ -107,6 +110,7 @@ public class ShapeData {
 		parentId = other.parentId;
 		lineColor = other.lineColor;
 		linePattern = other.linePattern;
+		isInteresting = other.isInteresting;
 		
 		path1D = new1dPath;
 		calculate1dEndpoints();
@@ -145,7 +149,20 @@ public class ShapeData {
 		return bounds.y1() + (bounds.y2() - bounds.y1())/2.0F; 
 	}
 	
+	public boolean encloses(ShapeData other) {
+		return bounds.intersectionArea(other.bounds) >= other.area;
+	}
+	
 	public String toString() {
 		return "[ShapeData " + shapeId + "]";
 	}
+	
+	public static boolean eitherEncloses(ShapeData s1, ShapeData s2) {
+		return s1.bounds.intersectionArea(s2.bounds) >= Math.min(s1.area, s2.area);
+	}
+	
+	public static boolean isInteresting(XDGFShape shape) {
+		return !shape.getSymbolName().isEmpty() || shape.isShape1D() || shape.hasMaster() || shape.hasText();
+	}
+	
 }

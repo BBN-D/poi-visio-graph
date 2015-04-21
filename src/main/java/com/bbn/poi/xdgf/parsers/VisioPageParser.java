@@ -133,6 +133,8 @@ public class VisioPageParser {
 		collectShapes();
 		collectConnections();
 		
+		removeBoringShapes();
+		
 		joinGroupedShapes();
 		addGroupLabels();
 		inferConnections();
@@ -162,15 +164,6 @@ public class VisioPageParser {
 					return;
 				}
 				
-				// if shape is not interesting and
-				// if siblings are not interesting (unless it has children) and
-				// if shape parents are interesting
-				
-				if (!isInteresting(shape) &&
-					!areSiblingsInteresting(shape) &&
-					!moreInterestingThanParents(shape))
-					return;
-				
 				setParentId(shapeData, shape);
 				
 				String id = pageId + ": " + shape.getID();
@@ -194,19 +187,7 @@ public class VisioPageParser {
 				// this isn't actually accurate
 				//vertex.setProperty("visible", shape.isVisible());
 				
-				// add to the tree
-				// - RTree only deals with bounding rectangles, so we need
-				//   to get the bounding rectangle in local coordinates, put
-				//   into a polygon (to allow accounting for rotation), and
-				//   then get the minimum bounding rectangle.
-				
-				// TODO: is it worth setting up a custom geometry?
-				// -> problem with a custom geometry is that calculating the
-				//    distance between objects would be annoying
-				
 				// local coordinates
-				rtree = rtree.add(shapeData, shapeData.bounds);
-				
 				vertex.setProperty("x", shapeData.getCenterX());
 				vertex.setProperty("y", shapeData.getCenterY());
 				
@@ -282,6 +263,7 @@ public class VisioPageParser {
 			
 			parentMatch.vertex.setProperty("label", shape.getTextAsString());
 			parentMatch.vertex.setProperty("textRef", shape.getID());
+			parentMatch.vertex.setProperty("textRefWhy", "reassignToParent");
 			parentMatch.hasText = true;
 			parentMatch.textCenter = text.getTextCenter();
 			
@@ -329,6 +311,39 @@ public class VisioPageParser {
 		}
 	}
 	
+	protected void removeBoringShapes() {
+		
+		// remove the boring shapes -- we only kept them so far because one of the 
+		// reasons a shape could be interesting is if there was a connection to it
+		
+		// if there isn't, get rid of it so we don't have extra stuff in the output
+		Iterator<ShapeData> iter = shapes.iterator();
+		
+		while (iter.hasNext()) {
+			
+			ShapeData shapeData = iter.next();
+			
+			if (shapeData.isInteresting) {
+
+				// add to the tree
+				// - RTree only deals with bounding rectangles, so we need
+				//   to get the bounding rectangle in local coordinates, put
+				//   into a polygon (to allow accounting for rotation), and
+				//   then get the minimum bounding rectangle.
+				
+				// TODO: is it worth setting up a custom geometry?
+				// -> problem with a custom geometry is that calculating the
+				//    distance between objects would be annoying
+				rtree = rtree.add(shapeData, shapeData.bounds);
+				
+			} else {
+				
+				iter.remove();
+				shapesMap.remove(shapeData.shapeId);
+			}
+		}
+	}
+	
 	protected void joinGroupedShapes() {
 		
 		// find groups of shapes that are visually together
@@ -362,14 +377,12 @@ public class VisioPageParser {
 					if (other == shapeData || other.is1d())
 						return;
 					
-					float area = Math.min(shapeData.area, other.area);
-					
 					// if the intersection is equal to the area of the smallest, then
 					// we can assume one of them contains the other
 					// .. don't want those to be joined
 					
 					if (!other.vertex.getProperty("symbolName").equals(symbolName) || 
-						shapeData.bounds.intersectionArea(other.bounds) >= area) {
+						ShapeData.eitherEncloses(shapeData, other)) {
 						return;
 					}
 					
@@ -416,7 +429,7 @@ public class VisioPageParser {
 						return;
 					
 					// if it visually contains it
-					if (shapeData.bounds.intersectionArea(other.bounds) >= other.area) {
+					if (shapeData.encloses(other)) {
 						
 						// ok, what to do here.
 						// -- problem: two hierarchies present here
@@ -750,6 +763,7 @@ public class VisioPageParser {
 			textShape.textCenter = shapeData.textCenter;
 			textShape.vertex.setProperty("label", shapeData.vertex.getProperty("label"));
 			textShape.vertex.setProperty("textRef", shapeData.shapeId);
+			textShape.vertex.setProperty("textRefWhy", "reassign2dClosest");
 			
 			helper.onAssignText(shapeData, textShape);
 		}
@@ -833,6 +847,8 @@ public class VisioPageParser {
 		
 		Observable<Entry<ShapeData, Rectangle>> entries = SpatialTools.nearest(rtree, textBox.bounds, helper.textInferenceDistance(textBox), rtree.size());
 		
+		final List<ShapeData> maybe = new ArrayList<>();
+		
 		entries.subscribe(new Rx.RTreeSubscriber() {
 			
 			@Override
@@ -840,40 +856,19 @@ public class VisioPageParser {
 				
 				ShapeData other = e.value();
 				
-				if (other.hasText || other.removed || !helper.onTextInference(textBox, other))
+				if (other == textBox || other.hasText || other.removed || !helper.onTextInference(textBox, other))
 					return;
 				
-				other.vertex.setProperty("label", textBox.vertex.getProperty("label"));
-				other.vertex.setProperty("textRef", textBox.shapeId);
-				other.hasText = true;
-				other.textCenter = textBox.textCenter;
-				
-				// move any edges from the textbox to us
-				for (Edge edge: textBox.vertex.getEdges(Direction.BOTH)) {
+				// if it encloses it, only associate if there's nothing else closer
+				if (other.encloses(textBox)) {
+					if (maybe.isEmpty())
+						maybe.add(other);
 					
-					ShapeData in = getShapeFromEdge(edge, Direction.IN);
-					ShapeData out = getShapeFromEdge(edge, Direction.OUT);
-					
-					if (in != other && out != other) {
-						
-						Double x = edge.getProperty("x");
-						Double y = edge.getProperty("y");
-						
-						if (in == textBox)
-							createEdge(out, other, "reparent", x, y);
-						else if (out == textBox)
-							createEdge(in, other, "reparent", x, y);
-						else
-							throw new POIXMLException("Internal error");
-					}
-					
-					graph.removeEdge(edge);
+					return;
 				}
 				
-				helper.onAssignText(textBox, other);
-				
-				// remove the textbox from the tree so others can't use it
-				removeShape(textBox);
+				doAssociateTextboxWithShape(textBox, other);
+				maybe.clear();
 				
 				// TODO: probably want to be more intelligent, and assign the text to
 				//       things that are nearer in a particular direction, taking 
@@ -883,6 +878,45 @@ public class VisioPageParser {
 				unsubscribe();
 			}
 		});
+		
+		// if we didn't find any alternatives, associate the first one that enclosed
+		if (!maybe.isEmpty())
+			doAssociateTextboxWithShape(textBox, maybe.get(0));
+	}
+	
+	protected void doAssociateTextboxWithShape(ShapeData textBox, ShapeData other) {
+		other.vertex.setProperty("label", textBox.vertex.getProperty("label"));
+		other.vertex.setProperty("textRef", textBox.shapeId);
+		other.vertex.setProperty("textRefWhy", "associateWithShape");
+		other.hasText = true;
+		other.textCenter = textBox.textCenter;
+		
+		// move any edges from the textbox to us
+		for (Edge edge: textBox.vertex.getEdges(Direction.BOTH)) {
+			
+			ShapeData in = getShapeFromEdge(edge, Direction.IN);
+			ShapeData out = getShapeFromEdge(edge, Direction.OUT);
+			
+			if (in != other && out != other) {
+				
+				Double x = edge.getProperty("x");
+				Double y = edge.getProperty("y");
+				
+				if (in == textBox)
+					createEdge(out, other, "reparent", x, y);
+				else if (out == textBox)
+					createEdge(in, other, "reparent", x, y);
+				else
+					throw new POIXMLException("Internal error");
+			}
+			
+			graph.removeEdge(edge);
+		}
+		
+		helper.onAssignText(textBox, other);
+		
+		// remove the textbox from the tree so others can't use it
+		removeShape(textBox);
 	}
 	
 	protected void inferGroupConnections() {
@@ -1133,6 +1167,8 @@ public class VisioPageParser {
 			throw new POIXMLException("Cannot find to node " + shape2.getID());
 		
 		// TODO: how to deal with from/to being null? Might happen.
+		sd1.isInteresting = true;
+		sd2.isInteresting = true;
 		
 		createEdge(sd1, sd2, edgeType, x, y);
 	}
@@ -1188,54 +1224,15 @@ public class VisioPageParser {
 		return sd;
 	}
 	
-	boolean isInteresting(XDGFShape shape) {
-		return !shape.getSymbolName().isEmpty() || shape.isShape1D() || shape.hasMaster() || shape.hasText();
-	}
-	
-	// this is way inefficient
-	protected boolean areSiblingsInteresting(XDGFShape shape) {
-		
-		if (!shape.hasShapes())
-			return false;
-		
-		XDGFShape parent = shape.getParentShape();
-		if (parent == null)
-			return false;
-		
-		for (XDGFShape sibling: parent.getShapes()) {
-			if (isInteresting(sibling))
-				return true;
-		}
-			
-		return false;
-	}
-	
-	protected boolean moreInterestingThanParents(XDGFShape shape) {
-		
-		// traverse up the tree until we find something
-		// with text, or a master associated with it
-		
-		while (true) {
-			shape = shape.getParentShape();
-			if (shape == null)
-				break;
-			
-			// if parent exists, it was deemed to be interesting, because we
-			// traverse down
-			if (shapesMap.get(shape.getID()) != null)
-				return false;
-		}
-		
-		return false;
-	}
-	
-	
 	protected ShapeData findTopmostParentWithGeom(ShapeData shapeData) {
 		
 		ShapeData shapeWithGeom = (shapeData.hasGeometry ? shapeData: null);
 		
 		while (shapeData.parentId != null) {
 			shapeData = shapesMap.get(shapeData.parentId);
+			if (shapeData == null)
+				break;
+			
 			if (shapeData.hasGeometry)
 				shapeWithGeom = shapeData;
 		}
