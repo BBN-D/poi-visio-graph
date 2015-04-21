@@ -17,7 +17,7 @@ import java.util.List;
 public class GeomUtils {
 
 	public static boolean arePointsEqual(double x1, double y1, double x2, double y2) {
-		return Math.abs(x1 - x2) < 0.00001 && Math.abs(y1 - y2) < 0.00001;
+		return Math.abs(x1 - x2) < 0.0001 && Math.abs(y1 - y2) < 0.0001;
 	}
 	
 	public static boolean isInsideOrOnBoundary(Path2D path, Point2D pt) {
@@ -245,12 +245,13 @@ public class GeomUtils {
 	}
 	
 	// copied from groovy-core; Apache 2.0 license
+	// -> However, Groovy uses Math.floor... but that fails for what we need 
 	public static double trunc(Double number, int precision) {
-        return Math.floor(number *Math.pow(10,precision))/Math.pow(10,precision);
+        return Math.round(number *Math.pow(10,precision))/Math.pow(10,precision);
     }
 	
 	public static double trunc4(Double number) {
-        return Math.floor(number *Math.pow(10,4))/Math.pow(10,4);
+        return Math.round(number *Math.pow(10,4))/Math.pow(10,4);
     }
 	
 	
