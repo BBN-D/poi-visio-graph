@@ -35,7 +35,7 @@ public class ShapeData {
 	public Long parentId = null;
 	
 	// in global coordinates
-	public Rectangle bounds;
+	public Rectangle rtreeBounds;	// don't use this except for the rtree, as this is in different precision!
 	public float area;
 	
 	// in global coordinates
@@ -45,6 +45,8 @@ public class ShapeData {
 	
 	public Path2D path2D = null;
 	public boolean hasGeometry;
+	
+	public Rectangle2D bounds;
 	
 	public Point2D textCenter = null;
 	
@@ -85,9 +87,11 @@ public class ShapeData {
 			hasGeometry = (path != null);
 		}
 		
+		this.bounds = shapeBounds.getBounds2D();
+		
 		this.shapeId = shape.getID();
-		this.bounds = SpatialTools.getShapeBounds(shapeBounds);
-		this.area = this.bounds.area();
+		this.rtreeBounds = SpatialTools.convertRect(this.bounds);
+		this.area = this.rtreeBounds.area();
 		
 		this.isInteresting = isInteresting(shape);
 		
@@ -115,8 +119,9 @@ public class ShapeData {
 		path1D = new1dPath;
 		calculate1dEndpoints();
 		
-		bounds = SpatialTools.getShapeBounds(new1dPath.getBounds2D());
-		area = this.bounds.area();
+		bounds = new1dPath.getBounds2D();
+		rtreeBounds = SpatialTools.convertRect(bounds);
+		area = this.rtreeBounds.area();
 		
 		hasText = false;
 		isTextbox = false;
@@ -142,15 +147,15 @@ public class ShapeData {
 	}
 	
 	public float getCenterX() {
-		return bounds.x1() + (bounds.x2() - bounds.x1())/2.0F; 
+		return rtreeBounds.x1() + (rtreeBounds.x2() - rtreeBounds.x1())/2.0F; 
 	}
 	
 	public float getCenterY() {
-		return bounds.y1() + (bounds.y2() - bounds.y1())/2.0F; 
+		return rtreeBounds.y1() + (rtreeBounds.y2() - rtreeBounds.y1())/2.0F; 
 	}
 	
 	public boolean encloses(ShapeData other) {
-		return bounds.intersectionArea(other.bounds) >= other.area;
+		return rtreeBounds.intersectionArea(other.rtreeBounds) >= other.area;
 	}
 	
 	public String toString() {
@@ -158,7 +163,7 @@ public class ShapeData {
 	}
 	
 	public static boolean eitherEncloses(ShapeData s1, ShapeData s2) {
-		return s1.bounds.intersectionArea(s2.bounds) >= Math.min(s1.area, s2.area);
+		return s1.rtreeBounds.intersectionArea(s2.rtreeBounds) >= Math.min(s1.area, s2.area);
 	}
 	
 	public static boolean isInteresting(XDGFShape shape) {

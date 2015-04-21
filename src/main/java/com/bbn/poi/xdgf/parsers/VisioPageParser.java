@@ -226,9 +226,8 @@ public class VisioPageParser {
 		XDGFShape current = shape;
 		ArrayList<ShapeData> duplicates = new ArrayList<>();
 		
-		double x = shapeData.bounds.x1();
-		
-		double width = shapeData.bounds.x2() - shapeData.bounds.x1();
+		double x = shapeData.bounds.getMinX();
+		double width = shapeData.bounds.getWidth();
 		
 		while (current.hasParent()) {
 			
@@ -237,8 +236,8 @@ public class VisioPageParser {
 			
 			if (parentData != null) {
 			
-				double parentWidth = parentData.bounds.x2() - parentData.bounds.x1();
-				double px = parentData.bounds.x1();
+				double parentWidth = parentData.bounds.getWidth();
+				double px = parentData.bounds.getMinX();
 				
 				if (Math.abs(width - parentWidth) > 0.0001 || Math.abs(px - x) > 0.0001)
 					break;
@@ -334,7 +333,7 @@ public class VisioPageParser {
 				// TODO: is it worth setting up a custom geometry?
 				// -> problem with a custom geometry is that calculating the
 				//    distance between objects would be annoying
-				rtree = rtree.add(shapeData, shapeData.bounds);
+				rtree = rtree.add(shapeData, shapeData.rtreeBounds);
 				
 			} else {
 				
@@ -366,7 +365,7 @@ public class VisioPageParser {
 			if (symbolName.equals(""))
 				continue;
 			
-			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.bounds);
+			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.rtreeBounds);
 			
 			entries.forEach(new Rx.RTreeAction() {
 
@@ -416,7 +415,7 @@ public class VisioPageParser {
 			final ArrayList<ShapeData> containedShapes = new ArrayList<>();
 			final ArrayList<ShapeData> secondaryShapes = new ArrayList<>();
 			
-			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.bounds);
+			Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.rtreeBounds);
 			
 			entries.forEach(new Rx.RTreeAction() {
 
@@ -542,7 +541,7 @@ public class VisioPageParser {
 		
 		// identify any shapes that it overlaps with
 		// add that shape to the list of connections
-		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.bounds);
+		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.rtreeBounds);
 		
 		entries.subscribe(new Rx.RTreeSubscriber() {
 
@@ -783,7 +782,7 @@ public class VisioPageParser {
 		
 		// identify any shapes that it overlaps with
 		// add that shape to the list of connections
-		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.bounds);
+		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(shapeData.rtreeBounds);
 		
 		entries.subscribe(new Rx.RTreeSubscriber() {
 			
@@ -845,7 +844,7 @@ public class VisioPageParser {
 		
 		// limit the search to some reasonable number/distance (TODO: what is reasonable)
 		
-		Observable<Entry<ShapeData, Rectangle>> entries = SpatialTools.nearest(rtree, textBox.bounds, helper.textInferenceDistance(textBox), rtree.size());
+		Observable<Entry<ShapeData, Rectangle>> entries = SpatialTools.nearest(rtree, textBox.rtreeBounds, helper.textInferenceDistance(textBox), rtree.size());
 		
 		final List<ShapeData> maybe = new ArrayList<>();
 		
@@ -1031,7 +1030,7 @@ public class VisioPageParser {
 	protected void inferDisconnectedGroupConnections(GroupData groupData, final List<ShapeData> connections, final boolean ignore1d) {
 		// identify any shapes that it overlaps with
 		// add that shape to the list of connections
-		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.bounds);
+		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.rtreeBounds);
 		
 		final Path2D groupPath = groupData.group.getPath();
 		
@@ -1129,10 +1128,9 @@ public class VisioPageParser {
 				for (Long o: other2dObjects) {
 					if (collected2dObjects.contains(o)) {
 						ShapeData sd = shapesMap.get(o);
-						if (sd.bounds.contains(x, y)) {
+						if (sd.bounds.intersects(x - 0.00001, y - 0.00001, 0.00002, 0.00002)) {
 							// remove edge if it overlaps
 							edge.remove();
-							break;
 						}
 					}
 				}
@@ -1272,7 +1270,7 @@ public class VisioPageParser {
 	protected void removeShape(ShapeData shapeData) {
 		shapeData.removed = true;
 		graph.removeVertex(shapeData.vertex);
-		rtree = rtree.delete(new Entry<ShapeData, Rectangle>(shapeData, shapeData.bounds));
+		rtree = rtree.delete(new Entry<ShapeData, Rectangle>(shapeData, shapeData.rtreeBounds));
 	}
 	
 	protected ShapeData clone1dShape(Path2D.Double newPath, ShapeData oldShape) {
@@ -1291,7 +1289,7 @@ public class VisioPageParser {
 		vertex.setProperty("shapeRef", oldShape.shapeId);
 		
 		ShapeData newShape = new ShapeData(shapeId, vertex, oldShape, newPath);
-		rtree = rtree.add(newShape, newShape.bounds);
+		rtree = rtree.add(newShape, newShape.rtreeBounds);
 		
 		vertex.setProperty("x", newShape.getCenterX());
 		vertex.setProperty("y", newShape.getCenterY());
