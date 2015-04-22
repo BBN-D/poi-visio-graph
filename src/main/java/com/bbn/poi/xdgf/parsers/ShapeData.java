@@ -34,7 +34,6 @@ public class ShapeData {
 	public XDGFShape shape = null; // don't use this
 	
 	public Vertex vertex;
-	public Long parentId = null;
 	
 	// in global coordinates
 	public Rectangle rtreeBounds;	// don't use this except for the rtree, as this is in different precision!
@@ -114,7 +113,6 @@ public class ShapeData {
 		this.shapeId = shapeId;
 		this.vertex = vertex;
 		
-		parentId = other.parentId;
 		lineColor = other.lineColor;
 		linePattern = other.linePattern;
 		isInteresting = other.isInteresting;

@@ -29,6 +29,7 @@ import org.apache.poi.xdgf.usermodel.XDGFShape;
 import org.apache.poi.xdgf.usermodel.XDGFText;
 import org.apache.poi.xdgf.usermodel.shape.ShapeDataAcceptor;
 import org.apache.poi.xdgf.usermodel.shape.ShapeVisitor;
+import org.apache.poi.xdgf.usermodel.shape.exceptions.StopVisiting;
 
 import rx.Observable;
 
@@ -135,6 +136,10 @@ public class VisioPageParser {
 		
 		removeBoringShapes();
 		
+		// before we perform analysis, sort the shapes
+		// - Can't do this earlier, removeBoringShapes depends on the ordering
+		Collections.sort(shapes, new ShapeData.OrderByLargestAreaFirst());
+		
 		joinGroupedShapes();
 		addGroupLabels();
 		inferConnections();
@@ -195,30 +200,6 @@ public class VisioPageParser {
 				shapes.add(shapeData);
 			}
 		});
-		
-		cleanShapes();
-		
-		Collections.sort(shapes, new ShapeData.OrderByLargestAreaFirst());
-	}
-	
-	protected void setParentId(ShapeData shapeData) {
-
-		XDGFShape shape = shapeData.shape;
-		
-		while (true) {
-			
-			shape = shape.getParentShape();
-			if (shape == null)
-				return;
-			
-			if (shapesMap.get(shape.getID()) != null) {
-				shapeData.parentId = shape.getID();
-				break;
-			}
-		}
-		
-		shapeData.shape = null;
-		
 	}
 	
 	protected boolean reassignTextNodeToParent(XDGFShape shape, ShapeData shapeData) {
@@ -234,7 +215,7 @@ public class VisioPageParser {
 		while (current.hasParent()) {
 			
 			XDGFShape parent = current.getParentShape();
-			ShapeData parentData = shapesMap.get(parent.getID());
+			ShapeData parentData = getShape(parent.getID());
 			
 			if (parentData != null) {
 			
@@ -266,6 +247,7 @@ public class VisioPageParser {
 			parentMatch.vertex.setProperty("textRef", shape.getID());
 			parentMatch.vertex.setProperty("textRefWhy", "reassignToParent");
 			parentMatch.hasText = true;
+			parentMatch.isInteresting = true;
 			parentMatch.textCenter = text.getTextCenter();
 			
 			helper.onReassignToParent(parentMatch, shape);
@@ -293,7 +275,7 @@ public class VisioPageParser {
 			XDGFShape from = conn.getFromShape();
 			XDGFShape to = conn.getToShape();
 			
-			ShapeData fromShapeData = findShape(from.getID());
+			ShapeData fromShapeData = findShapeOrParent(from.getID());
 			
 			switch (conn.getFromPart()) {
 				case XDGFConnection.visBegin:
@@ -318,13 +300,65 @@ public class VisioPageParser {
 		// reasons a shape could be interesting is if there was a connection to it
 		
 		// if there isn't, get rid of it so we don't have extra stuff in the output
-		Iterator<ShapeData> iter = shapes.iterator();
 		
-		while (iter.hasNext()) {
+		for (final ShapeData shapeData: shapes) {
 			
-			ShapeData shapeData = iter.next();
+			if (shapeData.removed)
+				continue;
 			
-			if (shapeData.isInteresting) {
+			if (!shapeData.isInteresting && shapeData.vertex.getProperty("type").equals("Group")) {
+			
+				final List<ShapeData> children = new ArrayList<>();
+				
+				// if not interesting -- but, all of the children are either groups or shapes..
+				// .. remove the kids?
+				try {
+					shapeData.shape.visitShapes(new ShapeVisitor() {
+						
+						@Override
+						public void visit(XDGFShape shape, AffineTransform globalTransform, int level) {
+							
+							if (shape.getID() == shapeData.shapeId)
+								return;
+							
+							ShapeData child = getShape(shape.getID());
+							if (child != null) {
+								if (child.hasText || !child.shape.getSymbolName().isEmpty())
+									throw new StopVisiting();
+								
+								children.add(child);
+							}
+						}
+					}, 0);
+				} catch (StopVisiting e) {
+					children.clear();
+				}
+				
+				// if deemed interesting, remove kids and mark self as interesting
+				if (!children.isEmpty()) {
+					shapeData.isInteresting = true;
+					for (ShapeData child: children) {
+						
+						// if child has connections, move them over to the new interesting shape
+						for (Edge edge: child.vertex.getEdges(Direction.BOTH)) {
+							ShapeData other = getShapeFromEdge(edge, Direction.IN);
+							if (other == child)
+								other = getShapeFromEdge(edge, Direction.OUT);
+							
+							Double x = edge.getProperty("x");
+							Double y = edge.getProperty("y");
+							
+							createEdge(shapeData, other, "real-moved", x, y);
+							edge.remove();
+						}
+						
+						removeShape(child);
+					}
+				}
+			}
+			
+			// if it's interesting -- or if it has a connection, then keep it
+			if (shapeData.isInteresting || shapeData.vertex.getEdges(Direction.BOTH).iterator().hasNext()) {
 
 				// add to the tree
 				// - RTree only deals with bounding rectangles, so we need
@@ -337,14 +371,12 @@ public class VisioPageParser {
 				//    distance between objects would be annoying
 				rtree = rtree.add(shapeData, shapeData.rtreeBounds);
 				
-				setParentId(shapeData);
-				
 			} else {
-				
-				iter.remove();
-				shapesMap.remove(shapeData.shapeId);
+				removeShape(shapeData);
 			}
 		}
+		
+		cleanShapes();
 	}
 	
 	protected void joinGroupedShapes() {
@@ -553,6 +585,8 @@ public class VisioPageParser {
 			public void onNext(Entry<ShapeData, Rectangle> e) {
 				
 				ShapeData other = e.value();
+				if (other == shapeData)
+					return;
 				
 				// discard 1d shapes, textboxes, shapes that are already attached, or shapes
 				// that don't intersect
@@ -966,7 +1000,7 @@ public class VisioPageParser {
 				if (v == groupData.group.vertex)
 					v = e.getVertex(Direction.OUT);
 				
-				ShapeData other = shapesMap.get(v.getProperty("shapeId"));
+				ShapeData other = getShape((long)v.getProperty("shapeId"));
 				
 				if (!other.is1d())
 					continue;
@@ -978,7 +1012,7 @@ public class VisioPageParser {
 					if (vv == groupData.group.vertex)
 						continue;
 					
-					ShapeData oo = shapesMap.get(vv.getProperty("shapeId"));
+					ShapeData oo = getShape((long)vv.getProperty("shapeId"));
 					if (oo.is1d())
 						continue;
 					
@@ -986,7 +1020,7 @@ public class VisioPageParser {
 						has2dConnection = true;
 				}
 				
-				if (!e.getLabel().equals("real") &&
+				if (!e.getLabel().startsWith("real") &&
 					!GeomUtils.pathIntersects(groupPath, other.path1Dstart) &&
 					!GeomUtils.pathIntersects(groupPath, other.path1Dend) &&
 					!has2dConnection) {
@@ -1031,8 +1065,8 @@ public class VisioPageParser {
 		return disconnectedShapes != 0 && (disconnectedShapes >= totalShapes/2 || disconnectedShapes == totalShapes);
 	}
 	
-	protected void inferDisconnectedGroupConnections(GroupData groupData, final List<ShapeData> connections, final boolean ignore1d) {
-		// identify any shapes that it overlaps with
+	protected void inferDisconnectedGroupConnections(final GroupData groupData, final List<ShapeData> connections, final boolean ignore1d) {
+		// identify any shapes that the group overlaps with
 		// add that shape to the list of connections
 		Observable<Entry<ShapeData, Rectangle>> entries = rtree.search(groupData.group.rtreeBounds);
 		
@@ -1044,6 +1078,8 @@ public class VisioPageParser {
 			public void onNext(Entry<ShapeData, Rectangle> e) {
 				
 				ShapeData other = e.value();
+				if (other == groupData.group)
+					return;
 				
 				if (other.is1d()) {
 					
@@ -1131,7 +1167,7 @@ public class VisioPageParser {
 				
 				for (Long o: other2dObjects) {
 					if (collected2dObjects.contains(o)) {
-						ShapeData sd = shapesMap.get(o);
+						ShapeData sd = getShape(o);
 						if (sd.bounds.intersects(x - 0.00001, y - 0.00001, 0.00002, 0.00002)) {
 							// remove edge if it overlaps
 							edge.remove();
@@ -1159,8 +1195,8 @@ public class VisioPageParser {
 	
 	protected void createEdge(XDGFShape shape1, XDGFShape shape2, String edgeType, Double x, Double y) {
 		
-		ShapeData sd1 = findShape(shape1.getID());
-		ShapeData sd2 = findShape(shape2.getID());
+		ShapeData sd1 = findShapeOrParent(shape1.getID());
+		ShapeData sd2 = findShapeOrParent(shape2.getID());
 		
 		if (sd1 == null) 
 			throw new POIXMLException("Cannot find from node " + shape1.getID());
@@ -1169,9 +1205,6 @@ public class VisioPageParser {
 			throw new POIXMLException("Cannot find to node " + shape2.getID());
 		
 		// TODO: how to deal with from/to being null? Might happen.
-		sd1.isInteresting = true;
-		sd2.isInteresting = true;
-		
 		createEdge(sd1, sd2, edgeType, x, y);
 	}
 	
@@ -1205,10 +1238,17 @@ public class VisioPageParser {
 		}
 	}
 	
-	
-	protected ShapeData findShape(long id) {
-		
+	protected ShapeData getShape(long id) {
 		ShapeData sd = shapesMap.get(id);
+		if (sd != null && !sd.removed)
+			return sd;
+		
+		return null;
+	}
+	
+	protected ShapeData findShapeOrParent(long id) {
+		
+		ShapeData sd = getShape(id);
 		if (sd != null)
 			return sd;
 		
@@ -1220,7 +1260,7 @@ public class VisioPageParser {
 			if (shape == null)
 				break;
 			
-			sd = shapesMap.get(shape.getID());
+			sd = getShape(shape.getID());
 		}
 		
 		return sd;
@@ -1230,9 +1270,15 @@ public class VisioPageParser {
 		
 		ShapeData shapeWithGeom = (shapeData.hasGeometry ? shapeData: null);
 		
-		while (shapeData.parentId != null) {
-			shapeData = shapesMap.get(shapeData.parentId);			
-			if (shapeData.hasGeometry)
+		XDGFShape shape = pageContents.getShapeById(shapeData.shapeId);
+		
+		while (true) {
+			shape = shape.getParentShape();
+			if (shape == null)
+				break;
+			
+			shapeData = getShape(shape.getID());
+			if (shapeData != null && shapeData.hasGeometry)
 				shapeWithGeom = shapeData;
 		}
 		
@@ -1248,7 +1294,7 @@ public class VisioPageParser {
 	}
 	
 	protected ShapeData getShapeFromEdge(Edge edge, Direction direction) {
-		return shapesMap.get((Long)edge.getVertex(direction).getProperty("shapeId"));
+		return getShape((Long)edge.getVertex(direction).getProperty("shapeId"));
 	}
 	
 	protected void cleanShapes() {
