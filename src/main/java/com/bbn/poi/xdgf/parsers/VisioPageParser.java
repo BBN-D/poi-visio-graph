@@ -164,8 +164,6 @@ public class VisioPageParser {
 					return;
 				}
 				
-				setParentId(shapeData, shape);
-				
 				String id = pageId + ": " + shape.getID();
 				Vertex vertex = graph.addVertex(id);
 				
@@ -203,7 +201,9 @@ public class VisioPageParser {
 		Collections.sort(shapes, new ShapeData.OrderByLargestAreaFirst());
 	}
 	
-	protected void setParentId(ShapeData shapeData, XDGFShape shape) {
+	protected void setParentId(ShapeData shapeData) {
+
+		XDGFShape shape = shapeData.shape;
 		
 		while (true) {
 			
@@ -216,6 +216,8 @@ public class VisioPageParser {
 				break;
 			}
 		}
+		
+		shapeData.shape = null;
 		
 	}
 	
@@ -334,6 +336,8 @@ public class VisioPageParser {
 				// -> problem with a custom geometry is that calculating the
 				//    distance between objects would be annoying
 				rtree = rtree.add(shapeData, shapeData.rtreeBounds);
+				
+				setParentId(shapeData);
 				
 			} else {
 				
@@ -1227,10 +1231,7 @@ public class VisioPageParser {
 		ShapeData shapeWithGeom = (shapeData.hasGeometry ? shapeData: null);
 		
 		while (shapeData.parentId != null) {
-			shapeData = shapesMap.get(shapeData.parentId);
-			if (shapeData == null)
-				break;
-			
+			shapeData = shapesMap.get(shapeData.parentId);			
 			if (shapeData.hasGeometry)
 				shapeWithGeom = shapeData;
 		}

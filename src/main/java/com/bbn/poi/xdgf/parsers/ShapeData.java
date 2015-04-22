@@ -31,6 +31,8 @@ public class ShapeData {
 		}
 	}
 	
+	public XDGFShape shape = null; // don't use this
+	
 	public Vertex vertex;
 	public Long parentId = null;
 	
@@ -89,6 +91,7 @@ public class ShapeData {
 		
 		this.bounds = shapeBounds.getBounds2D();
 		
+		this.shape = shape;
 		this.shapeId = shape.getID();
 		this.rtreeBounds = SpatialTools.convertRect(this.bounds);
 		this.area = this.rtreeBounds.area();
