@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.bbn.poi.visio</groupId>
   <artifactId>poi-visio-graph</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>0.0.2-SNAPSHOT</version>
   <name>poi-visio-graph</name>
   <description>Parse visio documents to get useful information out of them</description>
   
@@ -30,7 +30,7 @@
 		<dependency>
 			<groupId>com.bbn.poi.visio</groupId>
 			<artifactId>poi-visio</artifactId>
-			<version>0.0.1-SNAPSHOT</version>
+			<version>0.0.2-SNAPSHOT</version>
 		</dependency>
         
         <dependency>
