@@ -165,7 +165,7 @@ public class VisioPageParser {
 				
 				ShapeData shapeData = new ShapeData(shape, globalTransform);
 				
-				if (shape.hasText() && reassignTextNodeToParent(shape, shapeData)) {
+				if (shapeData.hasText && reassignTextNodeToParent(shape, shapeData)) {
 					return;
 				}
 				
