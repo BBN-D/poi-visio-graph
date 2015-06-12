@@ -78,12 +78,7 @@ public class ShapeData {
 	
 	public ShapeData(XDGFShape shape, AffineTransform globalTransform) {
 		
-		// calculate bounding boxes + other geometry information we'll need later
-		Path2D.Double shapeBounds = shape.getBoundsAsPath();
-		
-		shapeBounds.transform(globalTransform);
-		shapeBounds = GeomUtils.roundPath(shapeBounds);
-		
+		Path2D shapeBounds;
 		Path2D path = shape.getPath();
 		
 		// some 1d shapes don't have a path associated with them, 
@@ -95,7 +90,14 @@ public class ShapeData {
 			hasGeometry = true;
 			
 			calculate1dEndpoints();
+			shapeBounds = path1D; // use path as bounds
 		} else {
+			// calculate bounding boxes + other geometry information we'll need later
+			shapeBounds = shape.getBoundsAsPath();
+			
+			shapeBounds.transform(globalTransform);
+			shapeBounds = GeomUtils.roundPath(shapeBounds);
+			
 			path2D = shapeBounds;
 			hasGeometry = (path != null);
 		}
