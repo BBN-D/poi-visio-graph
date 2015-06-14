@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.bbn.poi.visio</groupId>
   <artifactId>poi-visio-graph</artifactId>
-  <version>0.0.2-SNAPSHOT</version>
+  <version>0.0.3-SNAPSHOT</version>
   <name>poi-visio-graph</name>
   <description>Parse visio documents to get useful information out of them</description>
   

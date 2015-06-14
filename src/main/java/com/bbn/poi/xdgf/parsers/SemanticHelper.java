@@ -16,6 +16,8 @@
 
 package com.bbn.poi.xdgf.parsers;
 
+import java.util.List;
+
 import org.apache.poi.xdgf.usermodel.XDGFShape;
 
 /**
@@ -47,6 +49,16 @@ public class SemanticHelper {
 	
 	// called when text is
 	public void onClone1d(ShapeData oldShape, ShapeData newShape) {
+		
+	}
+	
+	// called when a group is detected
+	public void onGroup(ShapeData groupParent, List<ShapeData> groupMembers) {
+		
+	}
+	
+	// called when a secondary group is detected
+	public void onSecondaryGroup(ShapeData groupParent, List<ShapeData> groupMembers) {
 		
 	}
 

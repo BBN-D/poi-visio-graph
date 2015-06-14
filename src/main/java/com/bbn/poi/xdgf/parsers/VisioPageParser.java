@@ -152,10 +152,11 @@ public class VisioPageParser {
 		// - Can't do this earlier, removeBoringShapes depends on the ordering
 		Collections.sort(shapes, new ShapeData.OrderByLargestAreaFirst());
 		
+		associateText();
 		joinGroupedShapes();
 		addGroupLabels();
 		inferConnections();
-		associateText();
+		
 		
 		inferGroupConnections();
 		
@@ -509,10 +510,14 @@ public class VisioPageParser {
 				
 				removeShape(shapeData);
 				
+				helper.onGroup(shapeData, containedShapes);
+				
 			} else if (!secondaryShapes.isEmpty()) {
 				
 				for (ShapeData other: secondaryShapes) {
 					other.vertex.setProperty("inSecondaryGroup", true);
+					// TODO: technically, could be part of multiple secondary groups...
+					other.vertex.setProperty("secondaryGroup", shapeData.vertex.getProperty("label"));
 				}
 				
 				// this is a secondary group, it doesn't get removed from the graph yet
@@ -520,6 +525,8 @@ public class VisioPageParser {
 				group.children = secondaryShapes;
 				group.group = shapeData;
 				secondaryGroupShapes.add(group);
+				
+				helper.onSecondaryGroup(shapeData, secondaryShapes);
 			}
 		}
 		
