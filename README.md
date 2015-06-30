@@ -12,6 +12,17 @@ Visio document.
 Parses a visio document and creates a connected graph from it, inferring
 connections where necessary.
 
+Building
+========
+
+This depends on the poi-visio library, which can be found at
+
+    https://github.com/BBN-D/poi-visio
+
+Once that is installed, you can build this just like any other maven project:
+
+    mvn install
+
 Legal
 =====
 

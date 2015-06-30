@@ -30,7 +30,7 @@
 		<dependency>
 			<groupId>com.bbn.poi.visio</groupId>
 			<artifactId>poi-visio</artifactId>
-			<version>0.0.2-SNAPSHOT</version>
+			<version>0.0.3-SNAPSHOT</version>
 		</dependency>
         
         <dependency>
