@@ -15,11 +15,8 @@ connections where necessary.
 Building
 ========
 
-This depends on the poi-visio library, which can be found at
-
-    https://github.com/BBN-D/poi-visio
-
-Once that is installed, you can build this just like any other maven project:
+This requires POI 3.14 or later. You can build this just like any other
+maven project:
 
     mvn install
 
